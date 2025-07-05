@@ -1,0 +1,24 @@
+﻿
+
+StatusCode        : 200
+StatusDescription : OK
+Content           : {"count":632,"currencies":["A8","AAVE","ABT","ACH","ACS","ACX","ADA","AED","AERGO","
+                    AERO","AFN","AGIX","AGLD","AIOZ","AKT","ALCX","ALEO","ALEPH","ALGO","ALICE","ALL","A
+                    LT","AMD","AMP","ANG","ANKR","AN...
+RawContent        : HTTP/1.1 200 OK
+                    Transfer-Encoding: chunked
+                    Connection: keep-alive
+                    Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+                    Vary: Accept-Encoding
+                    Access-Control-Allow-Headers: Content-T...
+Forms             : {}
+Headers           : {[Transfer-Encoding, chunked], [Connection, keep-alive], [Nel, {"report_to":"cf-nel"
+                    ,"success_fraction":0.0,"max_age":604800}], [Vary, Accept-Encoding]...}
+Images            : {}
+InputFields       : {}
+Links             : {}
+ParsedHtml        : System.__ComObject
+RawContentLength  : 4122
+
+
+
