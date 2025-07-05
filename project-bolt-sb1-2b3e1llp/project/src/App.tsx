@@ -36,7 +36,7 @@ function App() {
 
   // 新增：异步数据状态
   const [result, setResult] = useState<number>(0);
-  const [rate, setRate] = useState<number>(0);
+  const [rate, setRate] = useState<number>(7.1661); // 初始汇率USD-CNY
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [timestamp, setTimestamp] = useState<string>(new Date().toLocaleString('zh-CN'));
 
@@ -53,7 +53,7 @@ function App() {
   const debouncedToCurrency = useDebounce(toCurrency, 100); // 减少到100ms
   const debouncedSelectedPeriod = useDebounce(selectedPeriod, 300); // 从500ms减少到300ms
 
-  // 全局加载API币种列表
+  // 全局加载API币种列表和初始汇率
   useEffect(() => {
     async function fetchCurrencies() {
       const codes = await getSupportedCurrenciesFromAPI();
@@ -78,7 +78,23 @@ function App() {
       ];
       setCurrencyList([...sortedFiat, ...cryptoList]);
     }
+
+    async function fetchInitialRate() {
+      // 立即获取初始汇率，不等待防抖
+      try {
+        const initialRate = await getExchangeRate('USD', 'CNY');
+        if (initialRate > 0) {
+          setRate(initialRate);
+          setTimestamp(new Date().toLocaleString('zh-CN'));
+          console.log('初始汇率获取成功:', initialRate);
+        }
+      } catch (error) {
+        console.warn('初始汇率获取失败，使用默认值:', error);
+      }
+    }
+
     fetchCurrencies();
+    fetchInitialRate();
   }, []);
 
   // 汇率和兑换结果
@@ -90,7 +106,7 @@ function App() {
         return;
       }
       
-      setIsLoading(true);
+      // 不再显示加载状态，直接获取汇率数据
       console.log('开始获取汇率数据:', { debouncedAmount, debouncedFromCurrency, debouncedToCurrency });
       
       try {
@@ -104,14 +120,11 @@ function App() {
           setResult(Number(r));
           setRate(Number(rt));
           setTimestamp(new Date().toLocaleString('zh-CN'));
-          setIsLoading(false);
           setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
         }
       } catch (error) {
         console.error('获取汇率数据失败:', error);
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        // 不需要设置loading状态，系统会使用缓存或模拟数据
       }
     }
     fetchData();
@@ -221,9 +234,8 @@ function App() {
   }, [fromCurrency, toCurrency]);
 
   const handleConvert = useCallback(() => {
-    // 触发转换动画或其他效果
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 500); // 减少动画时间
+    // 转换按钮点击，不再显示加载状态
+    console.log('用户点击兑换按钮');
   }, []);
 
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
