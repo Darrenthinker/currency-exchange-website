@@ -95,6 +95,19 @@ const logNextUpdateTime = () => {
 // 启动时显示更新时间
 logNextUpdateTime();
 
+// 检查是否到了固定更新时间点
+const isUpdateTime = (): boolean => {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  
+  // 固定时间点：0, 4, 8, 12, 16, 20
+  const updateHours = [0, 4, 8, 12, 16, 20];
+  
+  // 只在整点的前5分钟内允许API调用
+  return updateHours.includes(currentHour) && currentMinute < 5;
+};
+
 // API重试计数器
 const apiRetryCount = new Map<string, number>();
 const MAX_RETRIES = 3;
@@ -350,11 +363,34 @@ export const getExchangeRate = async (
     return cached.rate;
   }
 
-  // 生产环境中，首次加载时尝试获取真实API数据
-  // 如果API调用失败，则使用模拟数据作为降级方案
+  // 如果有过期的缓存，直接使用，避免等待API
+  if (cached && cached.rate > 0) {
+    console.log('使用过期缓存汇率避免等待:', cached.rate, '缓存键:', cacheKey);
+    return cached.rate;
+  }
+
+  // 如果没有任何缓存，使用模拟汇率立即响应
+  console.log('无缓存数据，使用模拟汇率立即响应');
+  const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
+  if (mockRate > 0) {
+    // 缓存模拟汇率
+    rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
+    console.log('使用模拟汇率:', mockRate, '缓存键:', cacheKey);
+    return mockRate;
+  }
   
+  // 只在固定时间点才调用API，其他时间直接返回模拟数据
+  if (!isUpdateTime()) {
+    console.log('非更新时间点，使用模拟汇率');
+    const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
+    if (mockRate > 0) {
+      rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
+      return mockRate;
+    }
+  }
+
   const url = `${UNIRATE_BASE}/rates?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}`;
-  console.log('获取实时汇率:', { fromCurrency, toCurrency, url });
+  console.log('固定时间点获取实时汇率:', { fromCurrency, toCurrency, url });
   
   try {
     const res = await fetch(url);
@@ -473,8 +509,21 @@ export const generateHistoricalData = async (
     return cachedHistory.data;
   }
 
-  // 生产环境中，首次加载时尝试获取真实API历史数据
-  // 如果API调用失败，则使用模拟数据作为降级方案
+  // 如果有过期的历史数据缓存，直接使用避免等待
+  if (cachedHistory && cachedHistory.data.length > 0) {
+    console.log('使用过期历史数据缓存避免等待:', cachedHistory.data.length, '条记录，缓存键:', historyCacheKey);
+    return cachedHistory.data;
+  }
+
+  // 如果没有任何缓存，使用模拟历史数据立即响应
+  console.log('无历史数据缓存，使用模拟数据立即响应');
+  const mockHistoricalData = generateMockHistoricalData(fromCurrency, toCurrency, period);
+  if (mockHistoricalData.length > 0) {
+    // 缓存模拟历史数据
+    historyCache.set(historyCacheKey, { data: mockHistoricalData, timestamp: Date.now() });
+    console.log('使用模拟历史数据:', mockHistoricalData.length, '条记录，缓存键:', historyCacheKey);
+    return mockHistoricalData;
+  }
   
   // 按 period 计算起止日期
   const now = new Date();
@@ -520,9 +569,19 @@ export const generateHistoricalData = async (
   const startStr = formatDate(startDate);
   const endStr = formatDate(endDate);
   
+  // 只在固定时间点才调用历史数据API
+  if (!isUpdateTime()) {
+    console.log('非更新时间点，使用模拟历史数据');
+    const mockHistoricalData = generateMockHistoricalData(fromCurrency, toCurrency, period);
+    if (mockHistoricalData.length > 0) {
+      historyCache.set(historyCacheKey, { data: mockHistoricalData, timestamp: Date.now() });
+      return mockHistoricalData;
+    }
+  }
+
   const url = `${UNIRATE_BASE}/historical/timeseries?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}&start_date=${startStr}&end_date=${endStr}`;
   
-  console.log('历史数据API调用详情:', {
+  console.log('固定时间点获取历史数据API调用详情:', {
     url,
     startStr,
     endStr,
