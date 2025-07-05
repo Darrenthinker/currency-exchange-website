@@ -1,17 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { CurrencySelector } from './components/CurrencySelector';
 import { ConversionResult } from './components/ConversionResult';
 import { ExchangeRateChart } from './components/ExchangeRateChart';
 import { TimePeriodSelector } from './components/TimePeriodSelector';
-import { convertCurrency, getExchangeRate, generateHistoricalData, getSupportedCurrenciesFromAPI } from './utils/currencyService';
+import { convertCurrency, getExchangeRate, generateHistoricalData, getSupportedCurrenciesFromAPI, preloadExchangeRate } from './utils/currencyService';
 import { TimePeriod } from './types/currency';
 import { RefreshCw, ArrowLeftRight } from 'lucide-react';
 import { Calculator } from './components/Calculator';
 import { currencyMetaMap } from './data/currencies';
 
+// 防抖函数
+const useDebounce = (value: any, delay: number) => {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
 function App() {
-  const [amount, setAmount] = useState<number>(100);
+  const [amount, setAmount] = useState<number>(0);
   const [fromCurrency, setFromCurrency] = useState<string>('USD');
   const [toCurrency, setToCurrency] = useState<string>('CNY');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1M');
@@ -23,8 +40,18 @@ function App() {
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [timestamp, setTimestamp] = useState<string>(new Date().toLocaleString('zh-CN'));
 
+  // 新增：立即响应状态
+  const [immediateResult, setImmediateResult] = useState<number>(0);
+  const [isImmediateCalculation, setIsImmediateCalculation] = useState<boolean>(false);
+
   // 新增：币种列表状态
   const [currencyList, setCurrencyList] = useState<{ code: string; country: string; name: string }[]>([]);
+
+  // 使用防抖来优化API调用 - 减少延迟时间提升用户体验
+  const debouncedAmount = useDebounce(amount, 200); // 进一步减少到200ms
+  const debouncedFromCurrency = useDebounce(fromCurrency, 100); // 减少到100ms
+  const debouncedToCurrency = useDebounce(toCurrency, 100); // 减少到100ms
+  const debouncedSelectedPeriod = useDebounce(selectedPeriod, 300); // 从500ms减少到300ms
 
   // 全局加载API币种列表
   useEffect(() => {
@@ -58,43 +85,153 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
+      if (!debouncedFromCurrency || !debouncedToCurrency || debouncedFromCurrency === debouncedToCurrency) {
+        console.warn('跳过汇率获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
+        return;
+      }
+      
       setIsLoading(true);
-      const [r, rt] = await Promise.all([
-        convertCurrency(amount, fromCurrency, toCurrency),
-        getExchangeRate(fromCurrency, toCurrency)
-      ]);
-      if (!cancelled) {
-        setResult(Number(r));
-        setRate(Number(rt));
-        setTimestamp(new Date().toLocaleString('zh-CN'));
-        setIsLoading(false);
+      console.log('开始获取汇率数据:', { debouncedAmount, debouncedFromCurrency, debouncedToCurrency });
+      
+      try {
+        const [r, rt] = await Promise.all([
+          convertCurrency(debouncedAmount, debouncedFromCurrency, debouncedToCurrency),
+          getExchangeRate(debouncedFromCurrency, debouncedToCurrency)
+        ]);
+        
+        if (!cancelled) {
+          console.log('汇率数据获取完成:', { result: r, rate: rt });
+          setResult(Number(r));
+          setRate(Number(rt));
+          setTimestamp(new Date().toLocaleString('zh-CN'));
+          setIsLoading(false);
+          setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
+        }
+      } catch (error) {
+        console.error('获取汇率数据失败:', error);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
     fetchData();
     return () => { cancelled = true; };
-  }, [amount, fromCurrency, toCurrency]);
+  }, [debouncedAmount, debouncedFromCurrency, debouncedToCurrency]);
 
   // 历史数据
   useEffect(() => {
     let cancelled = false;
     async function fetchHistory() {
-      const data = await generateHistoricalData(fromCurrency, toCurrency, selectedPeriod);
-      if (!cancelled) setHistoricalData(data);
+      // 确保货币代码有效且不相同
+      if (!debouncedFromCurrency || !debouncedToCurrency || debouncedFromCurrency === debouncedToCurrency) {
+        console.warn('跳过历史数据获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
+        return;
+      }
+      
+      console.log('开始获取历史数据:', { debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod });
+      
+      try {
+        const data = await generateHistoricalData(debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod);
+        if (!cancelled) {
+          console.log('历史数据获取完成:', data.length, '条记录');
+          
+          // 如果有实时汇率且历史数据不包含今天的数据，添加当天数据点
+          if (rate > 0 && data.length > 0) {
+            const today = new Date().toISOString().split('T')[0];
+            const hasToday = data.some(item => item.date === today);
+            
+            if (!hasToday) {
+              const todayData = {
+                date: today,
+                rate: rate,
+                change: 0,
+                changePercent: 0,
+              };
+              data.push(todayData);
+              console.log('添加当天汇率数据:', todayData);
+            }
+          }
+          
+          // 对于1天数据，如果数据点太少，添加当前时间点
+          if (debouncedSelectedPeriod === '1D' && rate > 0) {
+            if (data.length < 2) {
+              // 如果数据太少，创建基础数据点
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              const today = new Date();
+              
+              const baseData = [
+                {
+                  date: yesterday.toISOString().split('T')[0],
+                  rate: rate * 0.999, // 模拟昨天稍微不同的汇率
+                  change: 0,
+                  changePercent: 0,
+                },
+                {
+                  date: today.toISOString().split('T')[0],
+                  rate: rate,
+                  change: 0,
+                  changePercent: 0,
+                }
+              ];
+              
+              console.log('为1天数据创建基础数据点:', baseData);
+              setHistoricalData(baseData);
+              return;
+            }
+          }
+          
+          setHistoricalData(data);
+        }
+      } catch (error) {
+        console.error('获取历史数据失败:', error);
+        if (!cancelled) {
+          setHistoricalData([]);
+        }
+      }
     }
     fetchHistory();
     return () => { cancelled = true; };
-  }, [fromCurrency, toCurrency, selectedPeriod]);
+  }, [debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod, rate]);
 
-  const handleSwapCurrencies = () => {
+  // 立即响应计算 - 使用当前汇率立即计算结果
+  useEffect(() => {
+    if (rate > 0 && amount >= 0 && fromCurrency !== toCurrency) {
+      const immediate = amount * rate;
+      setImmediateResult(immediate);
+      setIsImmediateCalculation(true);
+      console.log('立即计算结果:', { amount, rate, immediate });
+    } else if (amount === 0) {
+      // 当金额为0时，立即显示0结果
+      setImmediateResult(0);
+      setIsImmediateCalculation(true);
+    }
+  }, [amount, rate, fromCurrency, toCurrency]);
+
+  // 预加载汇率 - 当货币选择变化时立即开始预加载
+  useEffect(() => {
+    if (fromCurrency && toCurrency && fromCurrency !== toCurrency) {
+      preloadExchangeRate(fromCurrency, toCurrency);
+    }
+  }, [fromCurrency, toCurrency]);
+
+  const handleSwapCurrencies = useCallback(() => {
     setFromCurrency(toCurrency);
     setToCurrency(fromCurrency);
-  };
+  }, [fromCurrency, toCurrency]);
 
-  const handleConvert = () => {
+  const handleConvert = useCallback(() => {
     // 触发转换动画或其他效果
     setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 1000);
-  };
+    setTimeout(() => setIsLoading(false), 500); // 减少动画时间
+  }, []);
+
+  const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Number(e.target.value);
+    if (!isNaN(value) && value >= 0) {
+      setAmount(value);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -147,7 +284,7 @@ function App() {
               <input
                 type="number"
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={handleAmountChange}
                 className="w-full p-4 text-lg border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="请输入金额"
               />
@@ -171,6 +308,8 @@ function App() {
             result={result}
             rate={rate}
             timestamp={timestamp}
+            immediateResult={immediateResult}
+            isImmediateCalculation={isImmediateCalculation}
           />
         </div>
 
@@ -191,6 +330,8 @@ function App() {
             data={historicalData}
             fromCurrency={fromCurrency}
             toCurrency={toCurrency}
+            currentRate={rate}
+            period={selectedPeriod}
           />
         </div>
       </main>

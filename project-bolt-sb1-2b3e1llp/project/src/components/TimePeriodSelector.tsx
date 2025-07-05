@@ -16,7 +16,6 @@ export const TimePeriodSelector: React.FC<TimePeriodSelectorProps> = ({
     { value: '1M', label: '1个月' },
     { value: '1Y', label: '1年' },
     { value: '5Y', label: '5年' },
-    { value: 'MAX', label: '最大' },
   ];
 
   return (

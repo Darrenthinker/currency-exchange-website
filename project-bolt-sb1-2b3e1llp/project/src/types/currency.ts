@@ -22,4 +22,4 @@ export interface ConversionResult {
   timestamp: string;
 }
 
-export type TimePeriod = '1D' | '5D' | '1M' | '1Y' | '5Y' | 'MAX';
+export type TimePeriod = '1D' | '5D' | '1M' | '1Y' | '5Y';
