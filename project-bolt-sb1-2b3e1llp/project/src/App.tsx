@@ -347,6 +347,11 @@ function App() {
           />
         </div>
       </main>
+      
+      {/* 底部联系信息 */}
+      <footer className="text-center py-6 text-sm text-gray-500">
+        若系统故障，请通知 13424243144 / 13424240034（微信同号）
+      </footer>
     </div>
   );
 }
