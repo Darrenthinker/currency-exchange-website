@@ -28,7 +28,7 @@ const useDebounce = (value: any, delay: number) => {
 };
 
 function App() {
-  const [amount, setAmount] = useState<number>(0);
+  const [amount, setAmount] = useState<string>('');
   const [fromCurrency, setFromCurrency] = useState<string>('USD');
   const [toCurrency, setToCurrency] = useState<string>('CNY');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1M');
@@ -209,13 +209,13 @@ function App() {
 
   // 立即响应计算 - 使用当前汇率立即计算结果
   useEffect(() => {
-    if (rate > 0 && amount >= 0 && fromCurrency !== toCurrency) {
-      const immediate = amount * rate;
+    if (rate > 0 && amount !== '' && fromCurrency !== toCurrency) {
+      const immediate = Number(amount) * rate;
       setImmediateResult(immediate);
       setIsImmediateCalculation(true);
       console.log('立即计算结果:', { amount, rate, immediate });
-    } else if (amount === 0) {
-      // 当金额为0时，立即显示0结果
+    } else if (amount === '') {
+      // 当金额为空时，立即显示0结果
       setImmediateResult(0);
       setIsImmediateCalculation(true);
     }
@@ -239,11 +239,14 @@ function App() {
   }, []);
 
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = Number(e.target.value);
-    if (!isNaN(value) && value >= 0) {
+    const value = e.target.value;
+    if (value === '' || (!isNaN(Number(value)) && Number(value) >= 0)) {
       setAmount(value);
     }
   }, []);
+
+  // 计算数值时，amount为空则视为0
+  const numericAmount = amount === '' ? 0 : Number(amount);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -314,7 +317,7 @@ function App() {
         {/* 转换结果 */}
         <div className="mb-6">
           <ConversionResult
-            amount={amount}
+            amount={numericAmount}
             fromCurrency={fromCurrency}
             toCurrency={toCurrency}
             result={result}
