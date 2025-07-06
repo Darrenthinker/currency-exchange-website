@@ -50,9 +50,12 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
       </div>
 
       <div className="text-sm text-gray-500">
-        汇率更新时间：{timestamp}
+        汇率更新：{timestamp}
         <span className="ml-4">
-          数据来源：<a href="https://unirateapi.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">UniRateAPI</a>
+          汇率来源：
+          <a href="https://unirateapi.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">UniRateAPI</a>
+          <span className="mx-1">|</span>
+          <a href="https://www.boc.cn/sourcedb/whpj/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">中国银行</a>
         </span>
       </div>
     </div>
