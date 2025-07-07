@@ -223,6 +223,8 @@ const generateMockHistoricalData = (
     'CNY-USD': 0.14,
     'USD-EUR': 0.91,
     'EUR-USD': 1.10,
+    'RUB-CNY': 0.08, // 1 RUB ≈ 0.08 CNY
+    'CNY-RUB': 12.5, // 1 CNY ≈ 12.5 RUB
   };
   
   const rateKey = `${fromCurrency}-${toCurrency}`;
@@ -287,13 +289,43 @@ const getMockExchangeRate = (fromCurrency: string, toCurrency: string): number =
     'CAD-CNY': 5.12,
     'SGD-CNY': 5.28,
     'KRW-CNY': 0.0054,
+    'RUB-CNY': 0.08,
+    'BRL-CNY': 1.35,
+    'ZAR-CNY': 0.39,
     'CNY-USD': 0.1397,
+    'CNY-EUR': 0.1274,
+    'CNY-GBP': 0.1096,
+    'CNY-JPY': 20.83,
+    'CNY-HKD': 1.09,
+    'CNY-AUD': 0.2137,
+    'CNY-CAD': 0.1953,
+    'CNY-SGD': 0.1894,
+    'CNY-KRW': 185.19,
+    'CNY-RUB': 12.5,
+    'CNY-BRL': 0.74,
+    'CNY-ZAR': 2.56,
     'USD-EUR': 0.91,
     'EUR-USD': 1.10,
     'USD-GBP': 0.785,
     'GBP-USD': 1.274,
     'USD-JPY': 149.2,
     'JPY-USD': 0.0067,
+    'USD-RUB': 90.0,
+    'RUB-USD': 0.011,
+    'USD-BRL': 5.2,
+    'BRL-USD': 0.192,
+    'USD-ZAR': 18.0,
+    'ZAR-USD': 0.055,
+    'USD-AUD': 1.52,
+    'AUD-USD': 0.658,
+    'USD-CAD': 1.36,
+    'CAD-USD': 0.735,
+    'USD-HKD': 7.85,
+    'HKD-USD': 0.1274,
+    'USD-SGD': 1.35,
+    'SGD-USD': 0.74,
+    'USD-KRW': 1350.0,
+    'KRW-USD': 0.00074,
   };
   
   const rateKey = `${fromCurrency}-${toCurrency}`;
@@ -351,8 +383,8 @@ export const preloadExchangeRate = async (
 export const getExchangeRate = async (
   fromCurrency: string,
   toCurrency: string
-): Promise<number> => {
-  if (fromCurrency === toCurrency) return 1;
+): Promise<{ rate: number; isMock: boolean }> => {
+  if (fromCurrency === toCurrency) return { rate: 1, isMock: false };
   
   // 检查缓存
   const cacheKey = getCacheKey(fromCurrency, toCurrency);
@@ -360,13 +392,13 @@ export const getExchangeRate = async (
   
   if (cached && isCacheValid(cached.timestamp)) {
     console.log('使用缓存汇率:', cached.rate, '缓存键:', cacheKey);
-    return cached.rate;
+    return { rate: cached.rate, isMock: false };
   }
 
   // 如果有过期的缓存，直接使用，避免等待API
   if (cached && cached.rate > 0) {
     console.log('使用过期缓存汇率避免等待:', cached.rate, '缓存键:', cacheKey);
-    return cached.rate;
+    return { rate: cached.rate, isMock: false };
   }
 
   // 如果没有任何缓存，使用模拟汇率立即响应
@@ -376,7 +408,7 @@ export const getExchangeRate = async (
     // 缓存模拟汇率
     rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
     console.log('使用模拟汇率:', mockRate, '缓存键:', cacheKey);
-    return mockRate;
+    return { rate: mockRate, isMock: true };
   }
   
   // 只在固定时间点才调用API，其他时间直接返回模拟数据
@@ -385,7 +417,7 @@ export const getExchangeRate = async (
     const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
     if (mockRate > 0) {
       rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
-      return mockRate;
+      return { rate: mockRate, isMock: true };
     }
   }
 
@@ -409,10 +441,10 @@ export const getExchangeRate = async (
         if (mockRate > 0) {
           rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
         }
-        return mockRate;
+        return { rate: mockRate, isMock: true };
       }
       
-      return 0;
+      return { rate: 0, isMock: true };
     }
     
     const data = await res.json();
@@ -456,9 +488,10 @@ export const getExchangeRate = async (
       rateCache.set(cacheKey, { rate, timestamp: Date.now() });
       resetRetryCount(cacheKey); // 成功时重置重试计数
       console.log('汇率已缓存:', cacheKey, rate);
+      return { rate, isMock: false };
     }
     
-    return rate;
+    return { rate: 0, isMock: true };
   } catch (error) {
     console.error('实时汇率API调用异常:', error);
     
@@ -470,10 +503,10 @@ export const getExchangeRate = async (
       // 缓存模拟汇率，但设置较短的缓存时间，以便稍后重试API
       rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
       console.log('使用模拟汇率作为降级方案:', mockRate, '重试次数:', apiRetryCount.get(cacheKey) || 0);
-      return mockRate;
+      return { rate: mockRate, isMock: true };
     }
     
-    return 0;
+    return { rate: 0, isMock: true };
   }
 };
 
@@ -484,7 +517,7 @@ export const convertCurrency = async (
   toCurrency: string
 ): Promise<number> => {
   if (fromCurrency === toCurrency) return amount;
-  const rate = await getExchangeRate(fromCurrency, toCurrency);
+  const { rate } = await getExchangeRate(fromCurrency, toCurrency);
   return amount * rate;
 };
 
