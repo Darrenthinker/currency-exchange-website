@@ -47,6 +47,9 @@ function App() {
   // 新增：币种列表状态
   const [currencyList, setCurrencyList] = useState<{ code: string; country: string; name: string }[]>([]);
 
+  // 新增：用于传递给计算器的初始值
+  const [calculatorInitValue, setCalculatorInitValue] = useState<string>('');
+
   // 使用防抖来优化API调用 - 减少延迟时间提升用户体验
   const debouncedAmount = useDebounce(amount, 200); // 进一步减少到200ms
   const debouncedFromCurrency = useDebounce(fromCurrency, 100); // 减少到100ms
@@ -228,6 +231,14 @@ function App() {
     }
   }, [fromCurrency, toCurrency]);
 
+  // 监听兑换结果变化，自动填入计算器（保留两位小数）
+  useEffect(() => {
+    if (result && !isNaN(Number(result))) {
+      const formatted = Number(result).toFixed(2);
+      setCalculatorInitValue(formatted);
+    }
+  }, [result]);
+
   const handleSwapCurrencies = useCallback(() => {
     setFromCurrency(toCurrency);
     setToCurrency(fromCurrency);
@@ -329,7 +340,7 @@ function App() {
         </div>
 
         {/* 数学计算器 */}
-        <Calculator />
+        <Calculator initialValue={calculatorInitValue} />
 
         {/* 汇率图表 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">

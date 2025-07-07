@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const buttons = [
   ['7', '8', '9', '+'],
@@ -16,10 +16,76 @@ const CustomBackspaceIcon = () => (
   </svg>
 );
 
-export const Calculator: React.FC = () => {
+export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initialValue }) => {
   const [input, setInput] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const displayRef = useRef<HTMLDivElement>(null);
+
+  // 外部初始值变化时自动填入
+  useEffect(() => {
+    if (typeof initialValue === 'string' || typeof initialValue === 'number') {
+      setInput(initialValue.toString());
+      setShowResult(false);
+    }
+  }, [initialValue]);
+
+  // 只有聚焦时才监听键盘
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!isFocused) return;
+    const key = e.key;
+    if ((key >= '0' && key <= '9') || key === '.') {
+      setInput(prev => prev + key);
+      setShowResult(false);
+    } else if (key === '+' || key === '-') {
+      setInput(prev => prev + key);
+      setShowResult(false);
+    } else if (key === '*' || key === 'x' || key === 'X') {
+      setInput(prev => prev + '*');
+      setShowResult(false);
+    } else if (key === '/' || key === '÷') {
+      setInput(prev => prev + '/');
+      setShowResult(false);
+    } else if (key === '%') {
+      setInput(prev => prev + '%');
+      setShowResult(false);
+    } else if (key === '(' || key === ')') {
+      setInput(prev => prev + key);
+      setShowResult(false);
+    } else if (key === 'Backspace') {
+      setInput(prev => prev.slice(0, -1));
+      setShowResult(false);
+    } else if (key === 'Enter' || key === '=') {
+      try {
+        // eslint-disable-next-line no-eval
+        const evalResult = eval(input.replace('%', '/100'));
+        setResult(evalResult.toString());
+        setShowResult(true);
+      } catch {
+        setResult('错误');
+        setShowResult(true);
+      }
+    } else if (key === 'c' || key === 'C' || key === 'Escape') {
+      setInput('');
+      setResult(null);
+      setShowResult(false);
+    }
+  }, [input, isFocused]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleKeyDown]);
+
+  // 让显示区域可聚焦，点击时聚焦
+  useEffect(() => {
+    if (isFocused && displayRef.current) {
+      displayRef.current.focus();
+    }
+  }, [isFocused]);
 
   const handleClick = (val: string) => {
     if (val === '=') {
@@ -40,7 +106,6 @@ export const Calculator: React.FC = () => {
       setInput(input.slice(0, -1));
       setShowResult(false);
     } else if (val === '( )') {
-      // 自动补全括号，优先补(
       const leftCount = (input.match(/\(/g) || []).length;
       const rightCount = (input.match(/\)/g) || []).length;
       if (leftCount === rightCount) {
@@ -58,7 +123,14 @@ export const Calculator: React.FC = () => {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 mb-8 max-w-2xl mx-auto flex flex-col items-center">
       <div className="w-full flex flex-col items-end mb-4">
-        <div className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px]">
+        <div
+          className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px] outline-none"
+          tabIndex={0}
+          ref={displayRef}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onClick={() => setIsFocused(true)}
+        >
           {showResult && result !== null ? (
             <>
               <div className="text-base text-gray-500 select-all">{input} =</div>
