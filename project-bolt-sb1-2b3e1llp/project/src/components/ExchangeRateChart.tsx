@@ -33,7 +33,7 @@ export const ExchangeRateChart: React.FC<ExchangeRateChartProps> = ({
         // 5年数据只显示年份
         return date.getFullYear().toString();
       default:
-        return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     }
   };
 

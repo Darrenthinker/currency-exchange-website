@@ -364,7 +364,8 @@ function App() {
       
       {/* 底部联系信息 */}
       <footer className="text-center py-6 text-sm text-gray-500">
-        若系统故障，请通知 13424243144 / 13424240034（微信同号）
+        若系统故障，请通知 13424243144 / 13424240034（微信同号）<br />
+        网站主页 <a href="https://huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代导航网</a>
       </footer>
     </div>
   );
