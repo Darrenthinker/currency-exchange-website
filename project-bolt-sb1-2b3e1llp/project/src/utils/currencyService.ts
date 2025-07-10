@@ -407,7 +407,7 @@ export const preloadExchangeRate = async (
 export const getExchangeRate = async (
   fromCurrency: string,
   toCurrency: string
-): Promise<{ rate: number; isMock: boolean }> => {
+): Promise<{ rate: number; isMock: boolean; isStale?: boolean }> => {
   if (fromCurrency === toCurrency) return { rate: 1, isMock: false };
   
   // 检查缓存
@@ -425,25 +425,19 @@ export const getExchangeRate = async (
     return { rate: cached.rate, isMock: false };
   }
 
-  // 如果没有任何缓存，使用模拟汇率立即响应
-  console.log('无缓存数据，使用模拟汇率立即响应');
-  const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
-  if (mockRate > 0) {
-    // 缓存模拟汇率
-    rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
-    console.log('使用模拟汇率:', mockRate, '缓存键:', cacheKey);
-    return { rate: mockRate, isMock: true };
-  }
+  // 如果没有任何缓存，直接调用API获取真实汇率
+  console.log('无缓存数据，调用API获取真实汇率');
+  // 不使用模拟汇率，直接进行API调用
   
-  // 只在固定时间点才调用API，其他时间直接返回模拟数据
-  if (!isUpdateTime()) {
-    console.log('非更新时间点，使用模拟汇率');
-    const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
-    if (mockRate > 0) {
-      rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
-      return { rate: mockRate, isMock: true };
-    }
-  }
+  // 注释掉时间限制，确保可以随时获取真实汇率
+  // if (!isUpdateTime()) {
+  //   console.log('非更新时间点，使用模拟汇率');
+  //   const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
+  //   if (mockRate > 0) {
+  //     rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
+  //     return { rate: mockRate, isMock: true };
+  //   }
+  // }
 
   const url = `${UNIRATE_BASE}/rates?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}`;
   console.log('固定时间点获取实时汇率:', { fromCurrency, toCurrency, url });
@@ -456,16 +450,10 @@ export const getExchangeRate = async (
       const errorText = await res.text();
       console.error('实时汇率API错误:', errorText);
       
-      // 如果是429错误（请求过多），使用模拟汇率
+      // 如果是429错误（请求过多），等待后重试而不使用模拟汇率
       if (res.status === 429) {
-        console.warn('API请求限制，使用模拟实时汇率');
-        incrementRetryCount(cacheKey); // 增加重试计数
-        const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
-        // 缓存模拟汇率，但设置较短的有效期以便重试
-        if (mockRate > 0) {
-          rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
-        }
-        return { rate: mockRate, isMock: true };
+        console.warn('API请求限制，等待后重试');
+        throw new Error('API请求限制，请稍后重试');
       }
       
       return { rate: 0, isMock: true };
@@ -489,18 +477,18 @@ export const getExchangeRate = async (
     // 尝试多种数据格式
     let rate = 0;
     
-    if (data.rates && data.rates[toCurrency]) {
-      // 原有格式：{ rates: { CNY: 7.16 } }
-      rate = data.rates[toCurrency];
-      console.log('使用rates格式，汇率:', rate);
-    } else if (data.rate && data.to === toCurrency) {
-      // 新格式：{ rate: 7.16, to: "CNY" }
+    if (data.rate && data.to === toCurrency) {
+      // 新格式（当前API格式）：{ rate: 7.16, to: "CNY", amount: 1, base: "USD", result: 7.16 }
       rate = data.rate;
       console.log('使用rate格式，汇率:', rate);
     } else if (data.result && data.to === toCurrency) {
       // 备用格式：{ result: 7.16, to: "CNY" }
       rate = data.result;
       console.log('使用result格式，汇率:', rate);
+    } else if (data.rates && data.rates[toCurrency]) {
+      // 旧格式：{ rates: { CNY: 7.16 } }
+      rate = data.rates[toCurrency];
+      console.log('使用rates格式，汇率:', rate);
     } else {
       console.error('未能解析汇率数据，数据格式:', data);
     }
@@ -519,18 +507,18 @@ export const getExchangeRate = async (
   } catch (error) {
     console.error('实时汇率API调用异常:', error);
     
-    // API调用失败时，使用模拟汇率作为降级方案
-    console.warn('API调用失败，使用模拟汇率作为降级方案');
-    incrementRetryCount(cacheKey); // 增加重试计数
-    const mockRate = getMockExchangeRate(fromCurrency, toCurrency);
-    if (mockRate > 0) {
-      // 缓存模拟汇率，但设置较短的缓存时间，以便稍后重试API
-      rateCache.set(cacheKey, { rate: mockRate, timestamp: Date.now() });
-      console.log('使用模拟汇率作为降级方案:', mockRate, '重试次数:', apiRetryCount.get(cacheKey) || 0);
-      return { rate: mockRate, isMock: true };
+    // API调用失败时，检查是否有过期缓存可以使用
+    const cacheKey = getCacheKey(fromCurrency, toCurrency);
+    const cached = rateCache.get(cacheKey);
+    
+    if (cached && cached.rate > 0) {
+      console.warn('API调用失败，使用上次缓存的真实汇率:', cached.rate);
+      return { rate: cached.rate, isMock: false, isStale: true };
     }
     
-    return { rate: 0, isMock: true };
+    // 完全无法获取汇率时抛出错误
+    console.error('API调用失败且无缓存数据，无法获取汇率');
+    throw new Error(`无法获取汇率数据: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
@@ -572,15 +560,9 @@ export const generateHistoricalData = async (
     return cachedHistory.data;
   }
 
-  // 如果没有任何缓存，使用模拟历史数据立即响应
-  console.log('无历史数据缓存，使用模拟数据立即响应');
-  const mockHistoricalData = generateMockHistoricalData(fromCurrency, toCurrency, period);
-  if (mockHistoricalData.length > 0) {
-    // 缓存模拟历史数据
-    historyCache.set(historyCacheKey, { data: mockHistoricalData, timestamp: Date.now() });
-    console.log('使用模拟历史数据:', mockHistoricalData.length, '条记录，缓存键:', historyCacheKey);
-    return mockHistoricalData;
-  }
+  // 如果没有任何缓存，直接调用API获取真实历史数据
+  console.log('无历史数据缓存，调用API获取真实历史数据');
+  // 不使用模拟历史数据，直接进行API调用
   
   // 按 period 计算起止日期
   const now = new Date();
@@ -662,10 +644,10 @@ export const generateHistoricalData = async (
       console.error('API错误响应:', errorText);
       console.error('完整响应:', res);
       
-      // 如果是429错误（请求过多），使用模拟数据
+      // 如果是429错误（请求过多），等待后重试而不使用模拟数据
       if (res.status === 429) {
-        console.warn('API请求限制，使用模拟历史数据');
-        return generateMockHistoricalData(fromCurrency, toCurrency, period);
+        console.warn('历史数据API请求限制，请稍后重试');
+        return [];
       }
       
       // 尝试解析错误信息
@@ -753,4 +735,111 @@ export const getSupportedCurrenciesFromAPI = async (): Promise<string[]> => {
   if (!res.ok) return [];
   const data = await res.json();
   return data.currencies || [];
+};
+
+// 强制刷新汇率数据（无视时间限制和缓存）
+export const forceRefreshRates = async (): Promise<void> => {
+  console.log('🔄 开始强制刷新汇率数据...');
+  
+  // 清空所有缓存
+  rateCache.clear();
+  historyCache.clear();
+  apiRetryCount.clear();
+  
+  console.log('✅ 所有缓存已清空');
+  
+  // 强制获取主要货币对的汇率
+  const mainCurrencies = ['USD', 'EUR', 'GBP', 'JPY', 'CNY'];
+  const promises: Promise<any>[] = [];
+  
+  for (const fromCurrency of mainCurrencies) {
+    for (const toCurrency of mainCurrencies) {
+      if (fromCurrency !== toCurrency) {
+        promises.push(
+          forceGetExchangeRate(fromCurrency, toCurrency)
+            .then(result => {
+              console.log(`✅ ${fromCurrency} → ${toCurrency}: ${result.rate} (${result.isMock ? '模拟' : '实时'})`);
+              return result;
+            })
+            .catch(error => {
+              console.error(`❌ ${fromCurrency} → ${toCurrency} 失败:`, error.message);
+              return null;
+            })
+        );
+      }
+    }
+  }
+  
+  try {
+    await Promise.allSettled(promises);
+    console.log('🎉 强制刷新完成');
+  } catch (error) {
+    console.error('强制刷新过程中出现错误:', error);
+  }
+};
+
+// 强制获取汇率（无视时间限制）
+const forceGetExchangeRate = async (
+  fromCurrency: string,
+  toCurrency: string
+): Promise<{ rate: number; isMock: boolean; isStale?: boolean }> => {
+  if (fromCurrency === toCurrency) {
+    return { rate: 1, isMock: false };
+  }
+
+  // 直接调用API，不检查时间限制
+  const url = `${UNIRATE_BASE}/rates?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}`;
+  
+  console.log('🔄 强制API调用:', url.replace(UNIRATE_API_KEY, 'YOUR_API_KEY'));
+  
+  try {
+    const response = await fetch(url);
+    console.log('API响应状态:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API错误响应:', errorText);
+      throw new Error(`API调用失败: ${response.status} ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    let rate = 0;
+    if (data.rate && data.to === toCurrency) {
+      // 新格式（当前API格式）：{ rate: 7.16, to: "CNY", amount: 1, base: "USD", result: 7.16 }
+      rate = parseFloat(data.rate);
+    } else if (data.result && data.to === toCurrency) {
+      // 备用格式：{ result: 7.16, to: "CNY" }
+      rate = parseFloat(data.result);
+    } else if (data.rates && data.rates[toCurrency]) {
+      // 旧格式：{ rates: { CNY: 7.16 } }
+      rate = parseFloat(data.rates[toCurrency]);
+    } else {
+      throw new Error(`未找到 ${toCurrency} 的汇率数据`);
+    }
+    
+    if (rate > 0) {
+      // 存入缓存
+      const cacheKey = getCacheKey(fromCurrency, toCurrency);
+      rateCache.set(cacheKey, { rate, timestamp: Date.now() });
+      
+      return { rate, isMock: false };
+    } else {
+      throw new Error(`汇率数据无效: ${rate}`);
+    }
+  } catch (error) {
+    console.error('强制API调用失败:', error);
+    
+    // 检查是否有过期缓存可以使用
+    const cacheKey = getCacheKey(fromCurrency, toCurrency);
+    const cached = rateCache.get(cacheKey);
+    
+    if (cached && cached.rate > 0) {
+      console.warn('强制刷新失败，使用上次缓存的真实汇率:', cached.rate);
+      return { rate: cached.rate, isMock: false, isStale: true };
+    }
+    
+    // 完全无法获取汇率时抛出错误
+    throw new Error(`强制获取汇率失败: ${error instanceof Error ? error.message : String(error)}`);
+  }
 };

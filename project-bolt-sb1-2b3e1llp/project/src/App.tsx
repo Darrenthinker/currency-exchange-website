@@ -50,6 +50,22 @@ function App() {
   // 新增：用于传递给计算器的初始值
   const [calculatorInitValue, setCalculatorInitValue] = useState<string>('');
 
+  // 新增：刷新触发器
+  const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
+
+  // 新增：刷新状态
+  const [refreshState, setRefreshState] = useState<'idle' | 'refreshing' | 'success'>('idle');
+
+  // 新增：系统错误状态
+  const [systemError, setSystemError] = useState<string>('');
+  const [isUsingStaleRate, setIsUsingStaleRate] = useState<boolean>(false);
+
+  // 处理刷新完成回调
+  const handleRefreshComplete = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1);
+    console.log('🔄 触发应用数据刷新');
+  }, []);
+
   // 使用防抖来优化API调用 - 减少延迟时间提升用户体验
   const debouncedAmount = useDebounce(amount, 200); // 进一步减少到200ms
   const debouncedFromCurrency = useDebounce(fromCurrency, 100); // 减少到100ms
@@ -124,15 +140,28 @@ function App() {
           setRate(Number(rtObj.rate));
           setTimestamp(new Date().toLocaleString('zh-CN'));
           setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
+          
+          // 检查是否使用过期汇率
+          if (rtObj.isStale) {
+            setIsUsingStaleRate(true);
+            setSystemError('系统故障，无法获取最新汇率，正在使用上次缓存汇率，请通知 13424243144 修复');
+          } else {
+            setIsUsingStaleRate(false);
+            setSystemError(''); // 清除错误状态
+          }
         }
       } catch (error) {
         console.error('获取汇率数据失败:', error);
-        // 不需要设置loading状态，系统会使用缓存或模拟数据
+        if (!cancelled) {
+          // 显示系统故障提示
+          setSystemError('系统故障，无法获取最新汇率，请通知 13424243144 修复');
+          setIsUsingStaleRate(false);
+        }
       }
     }
     fetchData();
     return () => { cancelled = true; };
-  }, [debouncedAmount, debouncedFromCurrency, debouncedToCurrency]);
+  }, [debouncedAmount, debouncedFromCurrency, debouncedToCurrency, refreshTrigger]);
 
   // 历史数据
   useEffect(() => {
@@ -256,6 +285,35 @@ function App() {
     }
   }, []);
 
+  // 处理刷新汇率
+  const handleRefresh = useCallback(async () => {
+    setRefreshState('refreshing');
+    try {
+      const { forceRefreshRates } = await import('./utils/currencyService');
+      await forceRefreshRates();
+      setRefreshState('success');
+      
+      // 清除错误状态
+      setSystemError('');
+      setIsUsingStaleRate(false);
+      
+      // 触发数据刷新
+      handleRefreshComplete();
+      
+      // 显示成功状态2小时后恢复
+      setTimeout(() => {
+        setRefreshState('idle');
+      }, 2 * 60 * 60 * 1000); // 2小时 = 2 * 60分钟 * 60秒 * 1000毫秒
+    } catch (error) {
+      console.error('刷新汇率失败:', error);
+      setRefreshState('idle');
+      
+      // 显示系统故障提示
+      setSystemError('系统故障，无法获取最新汇率，请通知 13424243144 修复');
+      setIsUsingStaleRate(false);
+    }
+  }, [handleRefreshComplete]);
+
   // 计算数值时，amount为空则视为0
   const numericAmount = amount === '' ? 0 : Number(amount);
 
@@ -264,6 +322,32 @@ function App() {
       <Header />
       
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8">
+        {/* 系统错误提示 */}
+        {systemError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  系统提醒
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{systemError}</p>
+                  {isUsingStaleRate && (
+                    <p className="mt-1 text-xs">
+                      当前显示的汇率为上次成功获取的真实汇率，非模拟数据
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 货币选择区域 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
@@ -323,26 +407,30 @@ function App() {
               {isLoading ? '转换中...' : '兑换'}
             </button>
             <button
-              onClick={async () => {
-                // 批量刷新所有币种对CNY的汇率
-                if (!currencyList.length) return;
-                for (const item of currencyList) {
-                  if (item.code !== 'CNY') {
-                    await getExchangeRate(item.code, 'CNY');
-                  }
+              onClick={handleRefresh}
+              disabled={refreshState === 'refreshing'}
+              className={`
+                w-28 py-4 rounded-lg font-medium mt-2 flex items-center justify-center text-lg transition-all duration-300
+                ${refreshState === 'refreshing'
+                  ? 'bg-blue-100 text-blue-600 cursor-not-allowed' 
+                  : refreshState === 'success'
+                  ? 'bg-green-500 text-white shadow-lg'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-700 active:bg-gray-300'
                 }
-                // 当前币种也刷新
-                await getExchangeRate(fromCurrency, toCurrency);
-                // 重新拉取当前页面数据
-                setTimestamp(new Date().toLocaleString('zh-CN'));
-                setIsImmediateCalculation(false);
-                // 触发一次数据刷新
-                setAmount(amount => amount + ''); // 触发useEffect
-                alert('所有币种汇率已刷新！');
-              }}
-              className="w-28 py-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium mt-2 flex items-center justify-center text-lg ml-2"
+              `}
+              title="手动刷新汇率数据"
             >
-              刷新汇率
+              <RefreshCw className={`w-4 h-4 mr-1 transition-transform duration-300 ${
+                refreshState === 'refreshing' ? 'animate-spin' : ''
+              }`} />
+              <span className={`transition-all duration-300 ${
+                refreshState === 'refreshing' ? 'opacity-80' : 
+                refreshState === 'success' ? 'text-white font-semibold' : ''
+              }`}>
+                {refreshState === 'refreshing' ? '刷新中...' : 
+                 refreshState === 'success' ? '刷新完成' : 
+                 '刷新汇率'}
+              </span>
             </button>
           </div>
         </div>
