@@ -85,11 +85,11 @@ function App() {
     async function fetchInitialRate() {
       // 立即获取初始汇率，不等待防抖
       try {
-        const initialRate = await getExchangeRate('USD', 'CNY');
-        if (initialRate > 0) {
-          setRate(initialRate);
+        const initialRateObj = await getExchangeRate('USD', 'CNY');
+        if (initialRateObj.rate > 0) {
+          setRate(initialRateObj.rate);
           setTimestamp(new Date().toLocaleString('zh-CN'));
-          console.log('初始汇率获取成功:', initialRate);
+          console.log('初始汇率获取成功:', initialRateObj.rate);
         }
       } catch (error) {
         console.warn('初始汇率获取失败，使用默认值:', error);
@@ -113,15 +113,15 @@ function App() {
       console.log('开始获取汇率数据:', { debouncedAmount, debouncedFromCurrency, debouncedToCurrency });
       
       try {
-        const [r, rt] = await Promise.all([
+        const [r, rtObj] = await Promise.all([
           convertCurrency(debouncedAmount, debouncedFromCurrency, debouncedToCurrency),
           getExchangeRate(debouncedFromCurrency, debouncedToCurrency)
         ]);
         
         if (!cancelled) {
-          console.log('汇率数据获取完成:', { result: r, rate: rt });
+          console.log('汇率数据获取完成:', { result: r, rate: rtObj });
           setResult(Number(r));
-          setRate(Number(rt));
+          setRate(Number(rtObj.rate));
           setTimestamp(new Date().toLocaleString('zh-CN'));
           setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
         }
@@ -322,6 +322,28 @@ function App() {
             >
               {isLoading ? '转换中...' : '兑换'}
             </button>
+            <button
+              onClick={async () => {
+                // 批量刷新所有币种对CNY的汇率
+                if (!currencyList.length) return;
+                for (const item of currencyList) {
+                  if (item.code !== 'CNY') {
+                    await getExchangeRate(item.code, 'CNY');
+                  }
+                }
+                // 当前币种也刷新
+                await getExchangeRate(fromCurrency, toCurrency);
+                // 重新拉取当前页面数据
+                setTimestamp(new Date().toLocaleString('zh-CN'));
+                setIsImmediateCalculation(false);
+                // 触发一次数据刷新
+                setAmount(amount => amount + ''); // 触发useEffect
+                alert('所有币种汇率已刷新！');
+              }}
+              className="w-28 py-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium mt-2 flex items-center justify-center text-lg ml-2"
+            >
+              刷新汇率
+            </button>
           </div>
         </div>
 
@@ -342,24 +364,6 @@ function App() {
         {/* 数学计算器 */}
         <Calculator initialValue={calculatorInitValue} />
 
-        {/* 汇率图表 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 space-y-4 sm:space-y-0">
-            <h2 className="text-xl font-semibold text-gray-800">汇率历史走势</h2>
-            <TimePeriodSelector
-              selectedPeriod={selectedPeriod}
-              onPeriodChange={setSelectedPeriod}
-            />
-          </div>
-
-          <ExchangeRateChart
-            data={historicalData}
-            fromCurrency={fromCurrency}
-            toCurrency={toCurrency}
-            currentRate={rate}
-            period={selectedPeriod}
-          />
-        </div>
       </main>
       
       {/* 底部联系信息 */}
