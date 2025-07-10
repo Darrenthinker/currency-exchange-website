@@ -134,7 +134,7 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
           {showResult && result !== null ? (
             <>
               <div className="text-base text-gray-500 select-all">{input} =</div>
-              <div className="text-3xl font-bold text-gray-900 select-all">{result}</div>
+              <div className="text-3xl font-bold text-gray-900 select-all">{result !== '错误' ? Number(result).toFixed(2) : result}</div>
             </>
           ) : (
             <div className="text-3xl font-bold text-gray-900 select-all">{input || '0'}</div>

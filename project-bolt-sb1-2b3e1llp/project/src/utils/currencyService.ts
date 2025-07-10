@@ -292,6 +292,10 @@ const getMockExchangeRate = (fromCurrency: string, toCurrency: string): number =
     'RUB-CNY': 0.08,
     'BRL-CNY': 1.35,
     'ZAR-CNY': 0.39,
+    'MYR-CNY': 1.54, // 1马来西亚林吉特 ≈ 1.54人民币
+    'CNY-MYR': 0.649, // 1人民币 ≈ 0.649马来西亚林吉特
+    'MYR-USD': 0.21, // 1马来西亚林吉特 ≈ 0.21美元
+    'USD-MYR': 4.76, // 1美元 ≈ 4.76马来西亚林吉特
     'CNY-USD': 0.1397,
     'CNY-EUR': 0.1274,
     'CNY-GBP': 0.1096,
