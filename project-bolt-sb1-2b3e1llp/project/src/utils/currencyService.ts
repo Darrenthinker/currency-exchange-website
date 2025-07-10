@@ -330,6 +330,26 @@ const getMockExchangeRate = (fromCurrency: string, toCurrency: string): number =
     'SGD-USD': 0.74,
     'USD-KRW': 1350.0,
     'KRW-USD': 0.00074,
+    // 以下为补全的常用币种对CNY汇率（如有重复，保留最新一条）
+    'MXN-CNY': 0.41, // 墨西哥比索
+    'CNY-MXN': 2.44,
+    'THB-CNY': 0.20, // 泰铢
+    'CNY-THB': 5.00,
+    'IDR-CNY': 0.00045, // 印尼盾
+    'CNY-IDR': 2222.22,
+    'VND-CNY': 0.00029, // 越南盾
+    'CNY-VND': 3448.28,
+    'PHP-CNY': 0.13, // 菲律宾比索
+    'CNY-PHP': 7.69,
+    'TWD-CNY': 0.23, // 新台币
+    'CNY-TWD': 4.35,
+    'MOP-CNY': 0.90, // 澳门元
+    'CNY-MOP': 1.11,
+    'NZD-CNY': 4.30, // 新西兰元
+    'CNY-NZD': 0.2326,
+    'INR-CNY': 0.087, // 印度卢比
+    'CNY-INR': 11.49,
+    // ...可继续补充更多币种...
   };
   
   const rateKey = `${fromCurrency}-${toCurrency}`;
