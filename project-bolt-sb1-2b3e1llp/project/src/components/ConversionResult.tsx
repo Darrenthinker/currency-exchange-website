@@ -43,7 +43,7 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
         
         <div className="text-left">
           <div className="text-3xl font-bold text-green-600">
-            {displayResult.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} {toCurrency}
+            {displayResult.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {toCurrency}
           </div>
           <div className="text-lg text-gray-600 mt-1">{toCurrencyData?.name}</div>
         </div>

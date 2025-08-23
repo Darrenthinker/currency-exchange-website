@@ -255,7 +255,7 @@ const generateMockHistoricalData = (
     
     result.push({
       date: date.toISOString().split('T')[0],
-      rate: Number(rate.toFixed(4)),
+      rate: Number(rate.toFixed(2)),
       change: 0,
       changePercent: 0,
     });
@@ -720,12 +720,12 @@ export const formatCurrency = (amount: number, currency: string): string => {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
+    maximumFractionDigits: 2,
   }).format(amount);
 };
 
 export const formatRate = (rate: number): string => {
-  return rate.toFixed(4);
+  return rate.toFixed(2);
 };
 
 // 获取UniRateAPI支持的币种列表
