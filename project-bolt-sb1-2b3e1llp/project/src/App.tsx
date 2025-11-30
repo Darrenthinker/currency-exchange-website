@@ -139,7 +139,7 @@ function App() {
       }
     }
 
-    fetchCurrencies();
+    // fetchCurrencies(); // 已移除此函数调用，因为直接使用了本地列表
     fetchInitialRate();
   }, []);
 
