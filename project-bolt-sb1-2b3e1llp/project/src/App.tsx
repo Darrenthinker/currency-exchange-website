@@ -87,41 +87,43 @@ function App() {
   const debouncedToCurrency = useDebounce(toCurrency, 100); // 减少到100ms
   const debouncedSelectedPeriod = useDebounce(selectedPeriod, 300); // 从500ms减少到300ms
 
-  // 全局加载API币种列表和初始汇率
+  // 全局加载币种列表（使用本地列表，不调用API以节省配额）
   useEffect(() => {
-    async function fetchCurrencies() {
-      try {
-        const codes = await getSupportedCurrenciesFromAPI();
-        if (codes && codes.length > 0) {
-          // 用本地映射补全展示信息
-          const list = codes.map((code: string) => ({
-            code,
-            country: currencyMetaMap[code]?.country || code,
-            name: currencyMetaMap[code]?.name || code
-          }));
-          // 排序逻辑
-          const majorFiat = [
-            'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
-          ];
-          const fiatList = list.filter(item => currencyMetaMap[item.code]);
-          const cryptoList = list.filter(item => !currencyMetaMap[item.code]);
-          // 经济大国法币优先
-          const sortedFiat = [
-            ...majorFiat
-              .map(code => fiatList.find(item => item.code === code))
-              .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
-            ...fiatList.filter(item => !majorFiat.includes(item.code))
-          ];
-          setCurrencyList([...sortedFiat, ...cryptoList]);
-          console.log('API币种列表加载成功，共', [...sortedFiat, ...cryptoList].length, '种货币');
-        } else {
-          console.warn('API返回的币种列表为空，使用本地币种列表');
-        }
-      } catch (error) {
-        console.error('获取API币种列表失败，使用本地币种列表:', error);
-        // 如果API失败，保持使用本地初始化的币种列表
-      }
-    }
+    // 直接使用本地币种列表，不调用API，节省每日配额
+    const majorFiat = [
+      'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
+    ];
+    
+    // 从本地映射表构建币种列表（只包含法币）
+    const allFiatList = Object.entries(currencyMetaMap)
+      .map(([code, meta]) => ({
+        code,
+        country: meta.country,
+        name: meta.name
+      }))
+      .filter(item => item.country && item.name); // 确保有完整信息
+    
+    // 经济大国法币优先排序
+    const sortedFiat = [
+      ...majorFiat
+        .map(code => allFiatList.find(item => item.code === code))
+        .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
+      ...allFiatList.filter(item => !majorFiat.includes(item.code))
+    ];
+    
+    setCurrencyList(sortedFiat);
+    console.log('本地币种列表加载成功（仅法币），共', sortedFiat.length, '种货币，未消耗API配额');
+    
+    // 可选：如果需要从API获取最新币种列表，可以在这里调用（但会消耗1次配额）
+    // async function fetchCurrenciesFromAPI() {
+    //   try {
+    //     const codes = await getSupportedCurrenciesFromAPI();
+    //     // 处理API返回的币种列表...
+    //   } catch (error) {
+    //     console.warn('API币种列表获取失败，继续使用本地列表:', error);
+    //   }
+    // }
+    // fetchCurrenciesFromAPI();
 
     async function fetchInitialRate() {
       // 立即获取初始汇率，不等待防抖
@@ -178,8 +180,15 @@ function App() {
       } catch (error) {
         console.error('获取汇率数据失败:', error);
         if (!cancelled) {
-          // 直接显示系统故障，不使用模拟数据
-          setSystemError('系统故障，无法获取最新汇率，请通知 13424243144 修复');
+          // 检查是否是API限流错误
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          let systemErrorMsg = '系统故障，无法获取最新汇率，请通知 13424243144 修复';
+          
+          if (errorMessage.includes('限流') || errorMessage.includes('429') || errorMessage.includes('Rate limit')) {
+            systemErrorMsg = 'API请求频率超限（每日200次已用完），请明天再试或升级API套餐。当前使用24小时内的缓存汇率。';
+          }
+          
+          setSystemError(systemErrorMsg);
           setIsUsingStaleRate(false);
           setResult(0);
           setRate(0);
@@ -280,12 +289,12 @@ function App() {
     }
   }, [amount, rate, fromCurrency, toCurrency]);
 
-  // 预加载汇率 - 当货币选择变化时立即开始预加载
-  useEffect(() => {
-    if (fromCurrency && toCurrency && fromCurrency !== toCurrency) {
-      preloadExchangeRate(fromCurrency, toCurrency);
-    }
-  }, [fromCurrency, toCurrency]);
+  // 预加载汇率 - 已禁用，避免API限流
+  // useEffect(() => {
+  //   if (fromCurrency && toCurrency && fromCurrency !== toCurrency) {
+  //     preloadExchangeRate(fromCurrency, toCurrency);
+  //   }
+  // }, [fromCurrency, toCurrency]);
 
   // 监听兑换结果变化，自动填入计算器（保留两位小数）
   useEffect(() => {

@@ -15,7 +15,7 @@ export const Header: React.FC = () => {
           <div className="flex flex-col items-center">
             <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight leading-tight">货币汇率兑换</h1>
             <p className="text-base font-bold text-red-500 mt-1 mb-0">实时汇率查询</p>
-            <p className="text-xs text-gray-500 mt-1">支持593种货币（170法定/423加密）</p>
+            <p className="text-xs text-gray-500 mt-1">支持170+种法币</p>
           </div>
         </div>
         

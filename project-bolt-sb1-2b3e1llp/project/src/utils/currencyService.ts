@@ -378,30 +378,16 @@ export const getMockExchangeRate = (fromCurrency: string, toCurrency: string): n
   return 1.0;
 };
 
-// 预加载汇率（后台静默获取，不影响用户体验）
+// 预加载汇率（已禁用，避免API限流）
+// 由于免费API套餐每日只有200次请求限制，禁用预加载功能
 export const preloadExchangeRate = async (
   fromCurrency: string,
   toCurrency: string
 ): Promise<void> => {
-  if (fromCurrency === toCurrency) return;
-  
-  // 检查缓存，如果已有有效缓存则不需要预加载
-  const cacheKey = getCacheKey(fromCurrency, toCurrency);
-  const cached = rateCache.get(cacheKey);
-  
-  if (cached && isCacheValid(cached.timestamp)) {
-    console.log('缓存有效，跳过预加载:', cacheKey);
-    return;
-  }
-  
-  // 后台静默获取汇率
-  console.log('开始预加载汇率:', { fromCurrency, toCurrency });
-  try {
-    await getExchangeRate(fromCurrency, toCurrency);
-    console.log('汇率预加载完成:', cacheKey);
-  } catch (error) {
-    console.warn('汇率预加载失败:', error);
-  }
+  // 完全禁用预加载，避免消耗API配额
+  // 只在用户实际需要时才调用API
+  console.log('预加载已禁用，避免API限流');
+  return;
 };
 
 // 获取实时汇率（异步，调用 UniRateAPI）
@@ -441,14 +427,61 @@ export const getExchangeRate = async (
   console.log('调用实时汇率API:', { fromCurrency, toCurrency, url: url.replace(UNIRATE_API_KEY, '***') });
   
   try {
-    const res = await fetch(url);
+    // 添加超时控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+    
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    clearTimeout(timeoutId);
     console.log('实时汇率API响应状态:', res.status, res.statusText);
     
     if (!res.ok) {
       const errorText = await res.text();
-      console.error('实时汇率API错误:', errorText);
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { message: errorText };
+      }
       
-      // API错误时，检查是否有24小时内的缓存可以使用
+      console.error('实时汇率API错误:', {
+        status: res.status,
+        statusText: res.statusText,
+        error: errorData,
+        url: url.replace(UNIRATE_API_KEY, '***')
+      });
+      
+      // 如果是429限流错误，提供更详细的错误信息
+      if (res.status === 429) {
+        const rateLimitInfo = errorData.limit 
+          ? `每日限制: ${errorData.limit}次，当前已用: ${errorData.current_count || '未知'}次`
+          : 'API请求频率超限';
+        console.error('API限流:', rateLimitInfo);
+        
+        // 检查是否有24小时内的缓存可以使用
+        const cacheKey = getCacheKey(fromCurrency, toCurrency);
+        const cached = rateCache.get(cacheKey);
+        
+        if (cached && cached.rate > 0) {
+          const cacheAge = Date.now() - cached.timestamp;
+          
+          if (cacheAge < VALID_CACHE_DURATION) {
+            console.warn('API限流，使用24小时内的缓存汇率:', cached.rate);
+            return { rate: cached.rate, isMock: false, isStale: true };
+          }
+        }
+        
+        // 如果没有有效缓存，抛出包含限流信息的错误
+        throw new Error(`API限流: ${rateLimitInfo}。请稍后再试或升级API套餐。`);
+      }
+      
+      // 其他API错误时，检查是否有24小时内的缓存可以使用
       const cacheKey = getCacheKey(fromCurrency, toCurrency);
       const cached = rateCache.get(cacheKey);
       
@@ -464,7 +497,7 @@ export const getExchangeRate = async (
       }
       
       // 如果没有有效缓存，抛出错误，不返回模拟数据
-      throw new Error(`API调用失败: ${res.status} ${errorText}`);
+      throw new Error(`API调用失败: ${res.status} ${errorData.message || errorText}`);
     }
     
     const data = await res.json();
@@ -527,7 +560,15 @@ export const getExchangeRate = async (
     // 如果没有有效缓存，抛出错误
     throw new Error('无法解析汇率数据且无有效缓存');
   } catch (error) {
-    console.error('实时汇率API调用异常:', error);
+    // 详细记录错误信息
+    const errorDetails = {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : 'Unknown',
+      isAbortError: error instanceof Error && error.name === 'AbortError',
+      isNetworkError: error instanceof Error && (error.message.includes('fetch') || error.message.includes('network')),
+    };
+    
+    console.error('实时汇率API调用异常:', errorDetails);
     
     // API调用失败时，检查是否有24小时内的缓存可以使用
     const cacheKey = getCacheKey(fromCurrency, toCurrency);
@@ -537,16 +578,18 @@ export const getExchangeRate = async (
       const cacheAge = Date.now() - cached.timestamp;
       
       if (cacheAge < VALID_CACHE_DURATION) {
-        console.warn('API调用失败，使用24小时内的缓存汇率:', cached.rate);
+        console.warn('API调用失败，使用24小时内的缓存汇率:', cached.rate, '缓存年龄:', (cacheAge / (60 * 60 * 1000)).toFixed(1), '小时');
         return { rate: cached.rate, isMock: false, isStale: true };
       } else {
-        console.error('缓存已过期（超过24小时），无法使用');
+        console.error('缓存已过期（超过24小时），无法使用，缓存年龄:', (cacheAge / (60 * 60 * 1000)).toFixed(1), '小时');
       }
+    } else {
+      console.error('无任何缓存数据');
     }
     
     // 如果没有24小时内的有效缓存，抛出错误，不返回模拟数据
     console.error('API调用失败且无24小时内的有效缓存，无法获取汇率');
-    throw new Error(`无法获取汇率数据: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`无法获取汇率数据: ${errorDetails.message}`);
   }
 };
 
