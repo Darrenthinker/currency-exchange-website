@@ -4,11 +4,84 @@ const UNIRATE_API_KEY = 'boD3FcxoDzeGMukU48L9S0hakWV0np7feubaSJbH2tEnNerht7vir39
 const UNIRATE_BASE = 'https://api.unirateapi.com/api';
 
 // 添加缓存机制
-const rateCache = new Map<string, { rate: number; timestamp: number }>();
-const historyCache = new Map<string, { data: ExchangeRate[]; timestamp: number }>();
+// 使用 localStorage 进行持久化缓存，同时保持内存缓存以提高性能
+const STORAGE_KEY = 'currency_rates_cache';
+const HISTORY_STORAGE_KEY = 'currency_history_cache';
+
+// 初始化缓存：尝试从 localStorage 读取
+const initCache = () => {
+  const memoryCache = new Map<string, { rate: number; timestamp: number }>();
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      Object.entries(parsed).forEach(([key, value]: [string, any]) => {
+        memoryCache.set(key, value);
+      });
+      console.log('从本地存储加载了', memoryCache.size, '条汇率缓存');
+    }
+  } catch (e) {
+    console.warn('读取本地汇率缓存失败:', e);
+  }
+  return memoryCache;
+};
+
+const initHistoryCache = () => {
+  const memoryCache = new Map<string, { data: ExchangeRate[]; timestamp: number }>();
+  try {
+    const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      Object.entries(parsed).forEach(([key, value]: [string, any]) => {
+        memoryCache.set(key, value);
+      });
+      console.log('从本地存储加载了', memoryCache.size, '条历史数据缓存');
+    }
+  } catch (e) {
+    console.warn('读取本地历史数据缓存失败:', e);
+  }
+  return memoryCache;
+};
+
+const rateCache = initCache();
+const historyCache = initHistoryCache();
+
+// 保存缓存到 localStorage
+const saveCache = () => {
+  try {
+    const obj = Object.fromEntries(rateCache);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  } catch (e) {
+    console.warn('保存汇率缓存失败:', e);
+  }
+};
+
+const saveHistoryCache = () => {
+  try {
+    const obj = Object.fromEntries(historyCache);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(obj));
+  } catch (e) {
+    console.warn('保存历史数据缓存失败:', e);
+  }
+};
+
 const CACHE_DURATION = 86400000; // 24小时缓存 (24 * 60 * 60 * 1000)
 const HISTORY_CACHE_DURATION = 86400000; // 历史数据缓存24小时，减少API调用
 const VALID_CACHE_DURATION = 86400000; // 有效缓存时长24小时
+
+// 内置默认汇率（作为最后防线）
+const DEFAULT_RATES: Record<string, number> = {
+  'USD-CNY': 7.25,
+  'CNY-USD': 0.138,
+  'EUR-CNY': 7.85,
+  'CNY-EUR': 0.127,
+  'GBP-CNY': 9.20,
+  'CNY-GBP': 0.109,
+  'JPY-CNY': 0.048,
+  'CNY-JPY': 20.83,
+  'HKD-CNY': 0.93,
+  'CNY-HKD': 1.07,
+};
 
 // 获取下一个固定时间点（0点、4点、8点、12点、16点、20点）
 const getNextUpdateTime = (): number => {
@@ -66,21 +139,23 @@ const isHistoryCacheValid = (timestamp: number): boolean => {
 
 // 清理过期缓存
 const cleanExpiredCache = () => {
-  // 清理汇率缓存
-  for (const [key, value] of rateCache.entries()) {
-    if (shouldUpdateCache(value.timestamp)) {
-      rateCache.delete(key);
-      console.log('删除过期汇率缓存:', key);
+    // 清理汇率缓存
+    for (const [key, value] of rateCache.entries()) {
+      if (shouldUpdateCache(value.timestamp)) {
+        rateCache.delete(key);
+        console.log('删除过期汇率缓存:', key);
+      }
     }
-  }
-  
-  // 清理历史数据缓存
-  for (const [key, value] of historyCache.entries()) {
-    if (shouldUpdateCache(value.timestamp)) {
-      historyCache.delete(key);
-      console.log('删除过期历史数据缓存:', key);
+    saveCache(); // 保存清理后的缓存
+    
+    // 清理历史数据缓存
+    for (const [key, value] of historyCache.entries()) {
+      if (shouldUpdateCache(value.timestamp)) {
+        historyCache.delete(key);
+        console.log('删除过期历史数据缓存:', key);
+      }
     }
-  }
+    saveHistoryCache(); // 保存清理后的缓存
 };
 
 // 定期清理缓存
@@ -474,6 +549,10 @@ export const getExchangeRate = async (
           if (cacheAge < VALID_CACHE_DURATION) {
             console.warn('API限流，使用24小时内的缓存汇率:', cached.rate);
             return { rate: cached.rate, isMock: false, isStale: true };
+          } else {
+            // 使用过期缓存作为降级方案
+            console.warn('API限流，使用过期的缓存汇率:', cached.rate, '缓存时间:', new Date(cached.timestamp).toLocaleString());
+            return { rate: cached.rate, isMock: false, isStale: true };
           }
         }
         
@@ -492,7 +571,9 @@ export const getExchangeRate = async (
           console.warn('API错误，使用24小时内的缓存汇率:', cached.rate);
           return { rate: cached.rate, isMock: false, isStale: true };
         } else {
-          console.error('缓存已过期（超过24小时），无法使用');
+          // 使用过期缓存作为降级方案
+          console.warn('API错误，使用过期的缓存汇率:', cached.rate, '缓存时间:', new Date(cached.timestamp).toLocaleString());
+          return { rate: cached.rate, isMock: false, isStale: true };
         }
       }
       
@@ -539,6 +620,7 @@ export const getExchangeRate = async (
     // 存储到缓存
     if (rate > 0) {
       rateCache.set(cacheKey, { rate, timestamp: Date.now() });
+      saveCache(); // 持久化保存
       resetRetryCount(cacheKey); // 成功时重置重试计数
       console.log('汇率已缓存:', cacheKey, rate);
       return { rate, isMock: false };
@@ -587,7 +669,21 @@ export const getExchangeRate = async (
       console.error('无任何缓存数据');
     }
     
-    // 如果没有24小时内的有效缓存，抛出错误，不返回模拟数据
+    // 如果没有24小时内的有效缓存，尝试使用默认汇率
+    const defaultRate = DEFAULT_RATES[cacheKey];
+    if (defaultRate) {
+      console.warn('使用内置默认汇率:', defaultRate);
+      return { rate: defaultRate, isMock: true, isStale: true };
+    }
+
+    // 最后的降级：反向查找默认汇率
+    const reverseKey = `${toCurrency}-${fromCurrency}`;
+    if (DEFAULT_RATES[reverseKey]) {
+      const rate = 1 / DEFAULT_RATES[reverseKey];
+      console.warn('使用反向内置默认汇率:', rate);
+      return { rate, isMock: true, isStale: true };
+    }
+
     console.error('API调用失败且无24小时内的有效缓存，无法获取汇率');
     throw new Error(`无法获取汇率数据: ${errorDetails.message}`);
   }
