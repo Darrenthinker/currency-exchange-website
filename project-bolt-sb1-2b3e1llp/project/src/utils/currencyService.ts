@@ -69,18 +69,18 @@ const CACHE_DURATION = 86400000; // 24小时缓存 (24 * 60 * 60 * 1000)
 const HISTORY_CACHE_DURATION = 86400000; // 历史数据缓存24小时，减少API调用
 const VALID_CACHE_DURATION = 86400000; // 有效缓存时长24小时
 
-// 内置默认汇率（作为最后防线）
+// 内置默认汇率（作为最后防线，基于最新市场数据更新）
 const DEFAULT_RATES: Record<string, number> = {
-  'USD-CNY': 7.25,
-  'CNY-USD': 0.138,
-  'EUR-CNY': 7.85,
-  'CNY-EUR': 0.127,
-  'GBP-CNY': 9.20,
+  'USD-CNY': 7.08,
+  'CNY-USD': 0.141,
+  'EUR-CNY': 7.65,
+  'CNY-EUR': 0.131,
+  'GBP-CNY': 9.15,
   'CNY-GBP': 0.109,
-  'JPY-CNY': 0.048,
-  'CNY-JPY': 20.83,
-  'HKD-CNY': 0.93,
-  'CNY-HKD': 1.07,
+  'JPY-CNY': 0.047,
+  'CNY-JPY': 21.28,
+  'HKD-CNY': 0.91,
+  'CNY-HKD': 1.10,
 };
 
 // 获取下一个固定时间点（0点、4点、8点、12点、16点、20点）
