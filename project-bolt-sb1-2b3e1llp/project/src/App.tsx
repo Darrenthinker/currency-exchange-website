@@ -166,10 +166,10 @@ function App() {
           setTimestamp(new Date().toLocaleString('zh-CN'));
           setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
           
-          // 检查是否使用过期汇率
+          // 检查是否使用过期汇率（24小时内的缓存）
           if (rtObj.isStale) {
             setIsUsingStaleRate(true);
-            setSystemError('系统故障，无法获取最新汇率，正在使用上次缓存汇率，请通知 13424243144 修复');
+            setSystemError('系统故障，无法获取最新汇率，正在使用24小时内的缓存汇率，请通知 13424243144 修复');
           } else {
             setIsUsingStaleRate(false);
             setSystemError(''); // 清除错误状态
