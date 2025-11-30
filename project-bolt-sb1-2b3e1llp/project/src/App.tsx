@@ -4,7 +4,7 @@ import { CurrencySelector } from './components/CurrencySelector';
 import { ConversionResult } from './components/ConversionResult';
 import { ExchangeRateChart } from './components/ExchangeRateChart';
 import { TimePeriodSelector } from './components/TimePeriodSelector';
-import { convertCurrency, getExchangeRate, generateHistoricalData, getSupportedCurrenciesFromAPI, preloadExchangeRate } from './utils/currencyService';
+import { convertCurrency, getExchangeRate, generateHistoricalData, getSupportedCurrenciesFromAPI, preloadExchangeRate, getMockExchangeRate } from './utils/currencyService';
 import { TimePeriod } from './types/currency';
 import { RefreshCw, ArrowLeftRight } from 'lucide-react';
 import { Calculator } from './components/Calculator';
@@ -44,8 +44,23 @@ function App() {
   const [immediateResult, setImmediateResult] = useState<number>(0);
   const [isImmediateCalculation, setIsImmediateCalculation] = useState<boolean>(false);
 
-  // 新增：币种列表状态
-  const [currencyList, setCurrencyList] = useState<{ code: string; country: string; name: string }[]>([]);
+  // 新增：币种列表状态 - 使用本地数据作为初始值
+  const [currencyList, setCurrencyList] = useState<{ code: string; country: string; name: string }[]>(() => {
+    // 使用本地币种数据初始化，确保即使API失败也能选择币种
+    return Object.entries(currencyMetaMap).map(([code, meta]) => ({
+      code,
+      country: meta.country,
+      name: meta.name
+    })).sort((a, b) => {
+      const majorFiat = ['USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'];
+      const aIndex = majorFiat.indexOf(a.code);
+      const bIndex = majorFiat.indexOf(b.code);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.code.localeCompare(b.code);
+    });
+  });
 
   // 新增：用于传递给计算器的初始值
   const [calculatorInitValue, setCalculatorInitValue] = useState<string>('');
@@ -75,27 +90,37 @@ function App() {
   // 全局加载API币种列表和初始汇率
   useEffect(() => {
     async function fetchCurrencies() {
-      const codes = await getSupportedCurrenciesFromAPI();
-      // 用本地映射补全展示信息
-      const list = codes.map((code: string) => ({
-        code,
-        country: currencyMetaMap[code]?.country || code,
-        name: currencyMetaMap[code]?.name || code
-      }));
-      // 排序逻辑
-      const majorFiat = [
-        'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
-      ];
-      const fiatList = list.filter(item => currencyMetaMap[item.code]);
-      const cryptoList = list.filter(item => !currencyMetaMap[item.code]);
-      // 经济大国法币优先
-      const sortedFiat = [
-        ...majorFiat
-          .map(code => fiatList.find(item => item.code === code))
-          .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
-        ...fiatList.filter(item => !majorFiat.includes(item.code))
-      ];
-      setCurrencyList([...sortedFiat, ...cryptoList]);
+      try {
+        const codes = await getSupportedCurrenciesFromAPI();
+        if (codes && codes.length > 0) {
+          // 用本地映射补全展示信息
+          const list = codes.map((code: string) => ({
+            code,
+            country: currencyMetaMap[code]?.country || code,
+            name: currencyMetaMap[code]?.name || code
+          }));
+          // 排序逻辑
+          const majorFiat = [
+            'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
+          ];
+          const fiatList = list.filter(item => currencyMetaMap[item.code]);
+          const cryptoList = list.filter(item => !currencyMetaMap[item.code]);
+          // 经济大国法币优先
+          const sortedFiat = [
+            ...majorFiat
+              .map(code => fiatList.find(item => item.code === code))
+              .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
+            ...fiatList.filter(item => !majorFiat.includes(item.code))
+          ];
+          setCurrencyList([...sortedFiat, ...cryptoList]);
+          console.log('API币种列表加载成功，共', [...sortedFiat, ...cryptoList].length, '种货币');
+        } else {
+          console.warn('API返回的币种列表为空，使用本地币种列表');
+        }
+      } catch (error) {
+        console.error('获取API币种列表失败，使用本地币种列表:', error);
+        // 如果API失败，保持使用本地初始化的币种列表
+      }
     }
 
     async function fetchInitialRate() {
@@ -153,9 +178,11 @@ function App() {
       } catch (error) {
         console.error('获取汇率数据失败:', error);
         if (!cancelled) {
-          // 显示系统故障提示
+          // 直接显示系统故障，不使用模拟数据
           setSystemError('系统故障，无法获取最新汇率，请通知 13424243144 修复');
           setIsUsingStaleRate(false);
+          setResult(0);
+          setRate(0);
         }
       }
     }

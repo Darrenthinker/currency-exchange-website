@@ -19,11 +19,13 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
 
   const selectedCurrencyData = currencyList.find(c => c.code === selectedCurrency);
-  const filteredCurrencies = currencyList.filter(currency =>
-    currency.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    currency.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (currency.country && currency.country.includes(searchTerm))
-  );
+  const filteredCurrencies = currencyList.length > 0 
+    ? currencyList.filter(currency =>
+        currency.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        currency.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (currency.country && currency.country.includes(searchTerm))
+      )
+    : [];
 
   const handleCurrencySelect = (currency: { code: string; country: string; name: string }) => {
     onCurrencyChange(currency.code);
@@ -69,19 +71,25 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
           </div>
           
           <div className="max-h-60 overflow-y-auto">
-            {filteredCurrencies.map((currency) => (
-              <button
-                key={currency.code}
-                onClick={() => handleCurrencySelect(currency)}
-                className="w-full flex items-center p-3 hover:bg-gray-50 transition-colors text-left min-h-[40px]"
-              >
-                <span className="flex-1 flex items-center justify-start gap-x-2">
-                  <span className="font-semibold text-base text-left align-middle whitespace-nowrap">{currency.country}</span>
-                  <span className="font-mono font-semibold text-base text-left align-middle whitespace-nowrap mr-1">{currency.code}</span>
-                  <span className="text-xs text-gray-500 text-left align-middle whitespace-nowrap">{currency.name}</span>
-                </span>
-              </button>
-            ))}
+            {filteredCurrencies.length > 0 ? (
+              filteredCurrencies.map((currency) => (
+                <button
+                  key={currency.code}
+                  onClick={() => handleCurrencySelect(currency)}
+                  className="w-full flex items-center p-3 hover:bg-gray-50 transition-colors text-left min-h-[40px]"
+                >
+                  <span className="flex-1 flex items-center justify-start gap-x-2">
+                    <span className="font-semibold text-base text-left align-middle whitespace-nowrap">{currency.country}</span>
+                    <span className="font-mono font-semibold text-base text-left align-middle whitespace-nowrap mr-1">{currency.code}</span>
+                    <span className="text-xs text-gray-500 text-left align-middle whitespace-nowrap">{currency.name}</span>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="p-4 text-center text-gray-500">
+                {currencyList.length === 0 ? '正在加载币种列表...' : '未找到匹配的币种'}
+              </div>
+            )}
           </div>
         </div>
       )}

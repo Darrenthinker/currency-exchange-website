@@ -275,7 +275,7 @@ const generateMockHistoricalData = (
 };
 
 // 获取模拟实时汇率（当API限制时使用）
-const getMockExchangeRate = (fromCurrency: string, toCurrency: string): number => {
+export const getMockExchangeRate = (fromCurrency: string, toCurrency: string): number => {
   if (fromCurrency === toCurrency) return 1;
   
   // 基础汇率表
@@ -450,13 +450,24 @@ export const getExchangeRate = async (
       const errorText = await res.text();
       console.error('实时汇率API错误:', errorText);
       
-      // 如果是429错误（请求过多），等待后重试而不使用模拟汇率
-      if (res.status === 429) {
-        console.warn('API请求限制，等待后重试');
-        throw new Error('API请求限制，请稍后重试');
+      // API错误时，检查是否有4小时内的缓存可以使用
+      const cacheKey = getCacheKey(fromCurrency, toCurrency);
+      const cached = rateCache.get(cacheKey);
+      
+      if (cached && cached.rate > 0) {
+        const cacheAge = Date.now() - cached.timestamp;
+        const fourHours = 4 * 60 * 60 * 1000;
+        
+        if (cacheAge < fourHours) {
+          console.warn('API错误，使用4小时内的缓存汇率:', cached.rate);
+          return { rate: cached.rate, isMock: false, isStale: true };
+        } else {
+          console.error('缓存已过期（超过4小时），无法使用');
+        }
       }
       
-      return { rate: 0, isMock: true };
+      // 如果没有有效缓存，抛出错误，不返回模拟数据
+      throw new Error(`API调用失败: ${res.status} ${errorText}`);
     }
     
     const data = await res.json();
@@ -503,21 +514,43 @@ export const getExchangeRate = async (
       return { rate, isMock: false };
     }
     
-    return { rate: 0, isMock: true };
+    // 如果无法解析汇率，检查是否有4小时内的缓存
+    console.error('无法解析API返回的汇率');
+    const cached = rateCache.get(cacheKey);
+    
+    if (cached && cached.rate > 0) {
+      const cacheAge = Date.now() - cached.timestamp;
+      const fourHours = 4 * 60 * 60 * 1000;
+      
+      if (cacheAge < fourHours) {
+        console.warn('使用4小时内的缓存汇率:', cached.rate);
+        return { rate: cached.rate, isMock: false, isStale: true };
+      }
+    }
+    
+    // 如果没有有效缓存，抛出错误
+    throw new Error('无法解析汇率数据且无有效缓存');
   } catch (error) {
     console.error('实时汇率API调用异常:', error);
     
-    // API调用失败时，检查是否有过期缓存可以使用
+    // API调用失败时，检查是否有4小时内的缓存可以使用
     const cacheKey = getCacheKey(fromCurrency, toCurrency);
     const cached = rateCache.get(cacheKey);
     
     if (cached && cached.rate > 0) {
-      console.warn('API调用失败，使用上次缓存的真实汇率:', cached.rate);
-      return { rate: cached.rate, isMock: false, isStale: true };
+      const cacheAge = Date.now() - cached.timestamp;
+      const fourHours = 4 * 60 * 60 * 1000;
+      
+      if (cacheAge < fourHours) {
+        console.warn('API调用失败，使用4小时内的缓存汇率:', cached.rate);
+        return { rate: cached.rate, isMock: false, isStale: true };
+      } else {
+        console.error('缓存已过期（超过4小时），无法使用');
+      }
     }
     
-    // 完全无法获取汇率时抛出错误
-    console.error('API调用失败且无缓存数据，无法获取汇率');
+    // 如果没有4小时内的有效缓存，抛出错误，不返回模拟数据
+    console.error('API调用失败且无4小时内的有效缓存，无法获取汇率');
     throw new Error(`无法获取汇率数据: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
@@ -711,6 +744,24 @@ export const generateHistoricalData = async (
   } catch (error) {
     console.error('API调用异常:', error);
     console.error('错误堆栈:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    // API失败时，检查是否有4小时内的历史数据缓存
+    const cachedHistory = historyCache.get(historyCacheKey);
+    
+    if (cachedHistory && cachedHistory.data.length > 0) {
+      const cacheAge = Date.now() - cachedHistory.timestamp;
+      const fourHours = 4 * 60 * 60 * 1000;
+      
+      if (cacheAge < fourHours) {
+        console.warn('历史数据API调用失败，使用4小时内的缓存数据');
+        return cachedHistory.data;
+      } else {
+        console.error('历史数据缓存已过期（超过4小时），无法使用');
+      }
+    }
+    
+    // 如果没有4小时内的有效缓存，返回空数组（显示系统故障）
+    console.error('历史数据API调用失败且无4小时内的有效缓存');
     return [];
   }
 };
