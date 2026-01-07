@@ -90,9 +90,41 @@ function App() {
   // 全局加载币种列表（使用本地列表，不调用API以节省配额）
   useEffect(() => {
     // 直接使用本地币种列表，不调用API，节省每日配额
-    const majorFiat = [
-      'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
+    // 基础排序：主要货币
+    const baseMajorFiat = [
+      'USD', 'CNY', 'EUR', 'CAD', 'GBP', 'HKD', 'JPY', 'AUD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
     ];
+
+    // 获取用户使用频率
+    let usageStats: Record<string, number> = {};
+    try {
+      const storedStats = localStorage.getItem('currency_usage_stats');
+      if (storedStats) {
+        usageStats = JSON.parse(storedStats);
+      }
+    } catch (e) {
+      console.warn('读取货币使用统计失败', e);
+    }
+
+    // 根据频率调整顺序
+    // 策略：USD 和 CNY 始终置顶，其他根据频率排序，频率高的排在主要货币列表中靠前位置
+    const topCurrencies = Object.entries(usageStats)
+      .sort(([, a], [, b]) => b - a) // 按频率降序
+      .map(([code]) => code)
+      .filter(code => code !== 'USD' && code !== 'CNY'); // 排除已固定的
+
+    // 构建最终的主要货币列表
+    // 1. USD, CNY
+    // 2. 高频使用的前 3 个货币（如果存在）
+    // 3. 原有的主要货币（去重）
+    const majorFiat = [
+      'USD', 'CNY',
+      ...topCurrencies.slice(0, 3), 
+      ...baseMajorFiat
+    ];
+    
+    // 去重
+    const uniqueMajorFiat = Array.from(new Set(majorFiat));
     
     // 从本地映射表构建币种列表（只包含法币）
     const allFiatList = Object.entries(currencyMetaMap)
@@ -105,10 +137,10 @@ function App() {
     
     // 经济大国法币优先排序
     const sortedFiat = [
-      ...majorFiat
+      ...uniqueMajorFiat
         .map(code => allFiatList.find(item => item.code === code))
         .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
-      ...allFiatList.filter(item => !majorFiat.includes(item.code))
+      ...allFiatList.filter(item => !uniqueMajorFiat.includes(item.code))
     ];
     
     setCurrencyList(sortedFiat);
@@ -307,12 +339,30 @@ function App() {
   const handleSwapCurrencies = useCallback(() => {
     setFromCurrency(toCurrency);
     setToCurrency(fromCurrency);
+    // 记录使用频率
+    updateCurrencyUsage(toCurrency);
+    updateCurrencyUsage(fromCurrency);
   }, [fromCurrency, toCurrency]);
+
+  // 更新货币使用频率的辅助函数
+  const updateCurrencyUsage = (code: string) => {
+    try {
+      const storedStats = localStorage.getItem('currency_usage_stats');
+      const stats = storedStats ? JSON.parse(storedStats) : {};
+      stats[code] = (stats[code] || 0) + 1;
+      localStorage.setItem('currency_usage_stats', JSON.stringify(stats));
+    } catch (e) {
+      console.warn('更新货币使用统计失败', e);
+    }
+  };
 
   const handleConvert = useCallback(() => {
     // 转换按钮点击，不再显示加载状态
     console.log('用户点击兑换按钮');
-  }, []);
+    // 记录使用频率
+    updateCurrencyUsage(fromCurrency);
+    updateCurrencyUsage(toCurrency);
+  }, [fromCurrency, toCurrency]);
 
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
