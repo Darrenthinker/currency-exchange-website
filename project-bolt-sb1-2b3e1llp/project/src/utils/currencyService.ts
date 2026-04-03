@@ -4,9 +4,22 @@ import { devLog, devWarn } from './devLog';
 // 主 API：ExchangeRate-API（免费1500次/天，无需密钥，一次返回所有币种汇率）
 const PRIMARY_API_BASE = 'https://open.er-api.com/v6/latest';
 
-// 备用 API：UniRateAPI（免费200次/天）
-const UNIRATE_API_KEY = 'boD3FcxoDzeGMukU48L9S0hakWV0np7feubaSJbH2tEnNerht7vir39R06mr9VRD';
-const UNIRATE_BASE = 'https://api.unirateapi.com/api';
+// UniRate 备用：浏览器直连（与原先一致）。密钥放在 .env 的 VITE_UNIRATE_API_KEY（会进前端包，勿提交仓库）
+const UNIRATE_API_BASE = 'https://api.unirateapi.com/api';
+
+function getUnirateApiKey(): string {
+  const k = import.meta.env.VITE_UNIRATE_API_KEY;
+  return typeof k === 'string' ? k.trim() : '';
+}
+
+/** path 如 rates、currencies 或 historical/timeseries（勿前导斜杠） */
+function buildUnirateDirectUrl(path: string, search: Record<string, string>): string | null {
+  const key = getUnirateApiKey();
+  if (!key) return null;
+  const p = path.replace(/^\//, '');
+  const q = new URLSearchParams({ ...search, api_key: key });
+  return `${UNIRATE_API_BASE}/${p}?${q.toString()}`;
+}
 
 /** 页面展示用：在接口返回汇率基础上上浮 0.05%（缓存仍存原始汇率，仅影响展示与换算结果） */
 export const DISPLAY_EXCHANGE_MARKUP_RATIO = 0.0005;
@@ -502,7 +515,10 @@ const fetchFromBackupAPI = async (
   fromCurrency: string,
   toCurrency: string
 ): Promise<{ rate: number; isMock: boolean; isStale?: boolean }> => {
-  const url = `${UNIRATE_BASE}/rates?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}`;
+  const url = buildUnirateDirectUrl('rates', { from: fromCurrency, to: toCurrency });
+  if (!url) {
+    throw new Error('备用API(UniRateAPI)未配置 VITE_UNIRATE_API_KEY');
+  }
   
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -695,7 +711,16 @@ export const generateHistoricalData = async (
     }
   }
 
-  const url = `${UNIRATE_BASE}/historical/timeseries?api_key=${UNIRATE_API_KEY}&from=${fromCurrency}&to=${toCurrency}&start_date=${startStr}&end_date=${endStr}`;
+  const url = buildUnirateDirectUrl('historical/timeseries', {
+    from: fromCurrency,
+    to: toCurrency,
+    start_date: startStr,
+    end_date: endStr,
+  });
+  if (!url) {
+    devWarn('历史数据：未配置 VITE_UNIRATE_API_KEY，跳过 UniRate 请求');
+    return [];
+  }
   
   devLog('固定时间点获取历史数据API调用详情:', {
     url,
@@ -824,7 +849,8 @@ export const formatRate = (rate: number): string => {
 
 // 获取UniRateAPI支持的币种列表
 export const getSupportedCurrenciesFromAPI = async (): Promise<string[]> => {
-  const url = `${UNIRATE_BASE}/currencies?api_key=${UNIRATE_API_KEY}`;
+  const url = buildUnirateDirectUrl('currencies', {});
+  if (!url) return [];
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();

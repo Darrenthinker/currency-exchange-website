@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "proxy:unirate": "node server/unirate-proxy.mjs"
   },
   "keywords": [
     "汇率",

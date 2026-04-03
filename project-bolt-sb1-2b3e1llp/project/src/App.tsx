@@ -146,8 +146,24 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
-      if (!debouncedFromCurrency || !debouncedToCurrency || debouncedFromCurrency === debouncedToCurrency) {
+      if (!debouncedFromCurrency || !debouncedToCurrency) {
         devWarn('跳过汇率获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
+        return;
+      }
+      // 相同币种：无需请求接口，汇率为 1，结果等于金额（与 getExchangeRate 语义一致）
+      if (debouncedFromCurrency === debouncedToCurrency) {
+        const amt =
+          debouncedAmount === '' || debouncedAmount === undefined
+            ? 0
+            : Number(debouncedAmount);
+        if (!cancelled) {
+          setResult(Number.isFinite(amt) ? amt : 0);
+          setRate(applyDisplayExchangeMarkup(1));
+          setTimestamp(new Date().toLocaleString('zh-CN'));
+          setIsImmediateCalculation(false);
+          setIsUsingStaleRate(false);
+          setSystemError('');
+        }
         return;
       }
       
@@ -199,25 +215,33 @@ function App() {
 
   // 立即响应计算 - 使用当前汇率立即计算结果
   useEffect(() => {
-    if (rate > 0 && amount !== '' && fromCurrency !== toCurrency) {
+    if (fromCurrency === toCurrency) {
+      const n = amount === '' ? 0 : Number(amount);
+      setImmediateResult(Number.isFinite(n) ? n : 0);
+      setIsImmediateCalculation(true);
+      return;
+    }
+    if (rate > 0 && amount !== '') {
       const immediate = Number(amount) * rate;
       setImmediateResult(immediate);
       setIsImmediateCalculation(true);
       devLog('立即计算结果:', { amount, rate, immediate });
     } else if (amount === '') {
-      // 当金额为空时，立即显示0结果
       setImmediateResult(0);
       setIsImmediateCalculation(true);
     }
   }, [amount, rate, fromCurrency, toCurrency]);
 
-  // 监听兑换结果变化，自动填入计算器（保留两位小数）
+  // 与 ConversionResult 同一套展示金额同步计算器，避免：同币种被清空显示成 0；或 result 为 0 时沿用旧数
   useEffect(() => {
-    if (result && !isNaN(Number(result))) {
-      const formatted = Number(result).toFixed(2);
-      setCalculatorInitValue(formatted);
+    const display =
+      isImmediateCalculation && immediateResult !== undefined && !Number.isNaN(immediateResult)
+        ? immediateResult
+        : result;
+    if (typeof display === 'number' && !Number.isNaN(display)) {
+      setCalculatorInitValue(Number(display).toFixed(2));
     }
-  }, [result]);
+  }, [result, immediateResult, isImmediateCalculation]);
 
   // 更新货币使用频率并重新排序币种列表
   const updateCurrencyUsage = useCallback((code: string) => {

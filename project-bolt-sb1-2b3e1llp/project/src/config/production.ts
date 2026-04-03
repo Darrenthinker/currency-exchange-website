@@ -3,7 +3,8 @@ export const PRODUCTION_CONFIG = {
   // API配置
   API: {
     BASE_URL: 'https://api.unirate.co/v1',
-    API_KEY: 'boD3FcxoDzeGMukU48L9S0hakWV0np7feubaSJbH2tEnNerht7vir39R06mr9VRD',
+    /** 与 currencyService 一致：使用 VITE_UNIRATE_API_KEY（会进前端包） */
+    API_KEY: '',
     RATE_LIMIT: 50, // 每小时50次请求
     TIMEOUT: 10000, // 10秒超时
   },
