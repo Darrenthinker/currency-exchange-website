@@ -232,8 +232,12 @@ function App() {
     }
   }, [amount, rate, fromCurrency, toCurrency]);
 
-  // 与 ConversionResult 同一套展示金额同步计算器，避免：同币种被清空显示成 0；或 result 为 0 时沿用旧数
+  // 与 ConversionResult 同一套展示金额同步计算器；金额未输入时不写入 0.00，避免下面计算器只显示 0
   useEffect(() => {
+    if (amount === '') {
+      setCalculatorInitValue('');
+      return;
+    }
     const display =
       isImmediateCalculation && immediateResult !== undefined && !Number.isNaN(immediateResult)
         ? immediateResult
@@ -241,7 +245,7 @@ function App() {
     if (typeof display === 'number' && !Number.isNaN(display)) {
       setCalculatorInitValue(Number(display).toFixed(2));
     }
-  }, [result, immediateResult, isImmediateCalculation]);
+  }, [amount, result, immediateResult, isImmediateCalculation]);
 
   // 更新货币使用频率并重新排序币种列表
   const updateCurrencyUsage = useCallback((code: string) => {
@@ -432,6 +436,7 @@ function App() {
         <div className="mb-6">
           <ConversionResult
             amount={numericAmount}
+            amountInputEmpty={amount === ''}
             fromCurrency={fromCurrency}
             toCurrency={toCurrency}
             result={result}
