@@ -17,7 +17,6 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
   fromCurrency,
   toCurrency,
   result,
-  rate,
   timestamp,
   immediateResult,
   isImmediateCalculation,
@@ -25,9 +24,12 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
   const fromCurrencyData = currencies.find(c => c.code === fromCurrency);
   const toCurrencyData = currencies.find(c => c.code === toCurrency);
 
-  // 优先显示立即计算结果，提升响应速度
   const displayResult = isImmediateCalculation && immediateResult !== undefined ? immediateResult : result;
-  const isUsingImmediateResult = isImmediateCalculation && immediateResult !== undefined;
+
+  const formattedResult = displayResult.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
   return (
     <div className="bg-white border-2 border-gray-200 rounded-xl p-8 text-center">
@@ -43,7 +45,7 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
         
         <div className="text-left">
           <div className="text-3xl font-bold text-green-600">
-            {displayResult.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {toCurrency}
+            {formattedResult} {toCurrency}
           </div>
           <div className="text-lg text-gray-600 mt-1">{toCurrencyData?.name}</div>
         </div>
@@ -53,6 +55,8 @@ export const ConversionResult: React.FC<ConversionResultProps> = ({
         汇率更新：{timestamp}
         <span className="ml-4">
           汇率来源：
+          <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">ExchangeRate-API</a>
+          <span className="mx-1">|</span>
           <a href="https://unirateapi.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">UniRateAPI</a>
           <span className="mx-1">|</span>
           <a href="https://www.boc.cn/sourcedb/whpj/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-600">中国银行</a>

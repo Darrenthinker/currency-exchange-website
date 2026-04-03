@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Copy, Check } from 'lucide-react';
+import { safeEvaluateMath } from '../utils/safeCalc';
 
 const buttons = [
   ['7', '8', '9', '+'],
@@ -21,7 +23,30 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
   const [result, setResult] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [copied, setCopied] = useState(false);
   const displayRef = useRef<HTMLDivElement>(null);
+
+  const handleCopy = useCallback(async () => {
+    const valueToCopy = showResult && result !== null && result !== '错误'
+      ? Number(result).toFixed(2)
+      : input || '0';
+    try {
+      await navigator.clipboard.writeText(valueToCopy);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = valueToCopy;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [showResult, result, input]);
 
   // 外部初始值变化时自动填入
   useEffect(() => {
@@ -58,8 +83,7 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
       setShowResult(false);
     } else if (key === 'Enter' || key === '=') {
       try {
-        // eslint-disable-next-line no-eval
-        const evalResult = eval(input.replace('%', '/100'));
+        const evalResult = safeEvaluateMath(input);
         setResult(evalResult.toString());
         setShowResult(true);
       } catch {
@@ -90,8 +114,7 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
   const handleClick = (val: string) => {
     if (val === '=') {
       try {
-        // eslint-disable-next-line no-eval
-        const evalResult = eval(input.replace('%', '/100'));
+        const evalResult = safeEvaluateMath(input);
         setResult(evalResult.toString());
         setShowResult(true);
       } catch {
@@ -124,13 +147,25 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 mb-8 max-w-2xl mx-auto flex flex-col items-center">
       <div className="w-full flex flex-col items-end mb-4">
         <div
-          className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px] outline-none"
+          className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px] outline-none relative group"
           tabIndex={0}
           ref={displayRef}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           onClick={() => setIsFocused(true)}
         >
+          <button
+            onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+            className="absolute left-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600 border border-gray-200 shadow-sm"
+            title="复制数值"
+          >
+            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+          </button>
+          {copied && (
+            <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+              已复制
+            </div>
+          )}
           {showResult && result !== null ? (
             <>
               <div className="text-base text-gray-500 select-all">{input} =</div>

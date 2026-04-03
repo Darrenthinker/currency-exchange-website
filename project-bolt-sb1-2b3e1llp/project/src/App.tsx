@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { CurrencySelector } from './components/CurrencySelector';
 import { ConversionResult } from './components/ConversionResult';
-import { ExchangeRateChart } from './components/ExchangeRateChart';
-import { TimePeriodSelector } from './components/TimePeriodSelector';
-import { convertCurrency, getExchangeRate, generateHistoricalData, getSupportedCurrenciesFromAPI, preloadExchangeRate, getMockExchangeRate } from './utils/currencyService';
-import { TimePeriod } from './types/currency';
+import {
+  getExchangeRate,
+  applyDisplayExchangeMarkup,
+  applyDisplayConversionMarkup,
+} from './utils/currencyService';
+import { devLog, devWarn } from './utils/devLog';
 import { RefreshCw, ArrowLeftRight } from 'lucide-react';
 import { Calculator } from './components/Calculator';
 import { currencyMetaMap } from './data/currencies';
@@ -27,39 +29,63 @@ const useDebounce = (value: any, delay: number) => {
   return debouncedValue;
 };
 
+// 发达国家/常用货币基础优先列表
+const MAJOR_FIAT_ORDER = [
+  'USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD',
+  'KRW', 'INR', 'RUB', 'BRL', 'ZAR', 'MYR', 'THB', 'IDR', 'VND',
+  'PHP', 'TWD', 'NZD', 'MXN', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN',
+];
+
+// 按使用频率排序，使用次数高的排最前，使用次数相同的按发达国家优先顺序排
+function sortCurrencyListByUsage(
+  list: { code: string; country: string; name: string }[]
+): { code: string; country: string; name: string }[] {
+  let usageStats: Record<string, number> = {};
+  try {
+    const storedStats = localStorage.getItem('currency_usage_stats');
+    if (storedStats) {
+      usageStats = JSON.parse(storedStats);
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return [...list].sort((a, b) => {
+    const aUsage = usageStats[a.code] || 0;
+    const bUsage = usageStats[b.code] || 0;
+    // 使用次数不同：按次数降序
+    if (aUsage !== bUsage) return bUsage - aUsage;
+    // 使用次数相同：按发达国家优先列表排序
+    const aIdx = MAJOR_FIAT_ORDER.indexOf(a.code);
+    const bIdx = MAJOR_FIAT_ORDER.indexOf(b.code);
+    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+    if (aIdx !== -1) return -1;
+    if (bIdx !== -1) return 1;
+    return a.code.localeCompare(b.code);
+  });
+}
+
 function App() {
   const [amount, setAmount] = useState<string>('');
   const [fromCurrency, setFromCurrency] = useState<string>('USD');
   const [toCurrency, setToCurrency] = useState<string>('CNY');
-  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1M');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-
-  // 新增：异步数据状态
   const [result, setResult] = useState<number>(0);
-  const [rate, setRate] = useState<number>(7.1661); // 初始汇率USD-CNY
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
+  const [rate, setRate] = useState<number>(() => applyDisplayExchangeMarkup(7.1661));
   const [timestamp, setTimestamp] = useState<string>(new Date().toLocaleString('zh-CN'));
 
   // 新增：立即响应状态
   const [immediateResult, setImmediateResult] = useState<number>(0);
   const [isImmediateCalculation, setIsImmediateCalculation] = useState<boolean>(false);
 
-  // 新增：币种列表状态 - 使用本地数据作为初始值
+  // 币种列表状态 - 使用本地数据作为初始值，按使用频率排序
   const [currencyList, setCurrencyList] = useState<{ code: string; country: string; name: string }[]>(() => {
-    // 使用本地币种数据初始化，确保即使API失败也能选择币种
-    return Object.entries(currencyMetaMap).map(([code, meta]) => ({
-      code,
-      country: meta.country,
-      name: meta.name
-    })).sort((a, b) => {
-      const majorFiat = ['USD', 'CNY', 'EUR', 'JPY', 'GBP', 'HKD', 'AUD', 'CAD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'];
-      const aIndex = majorFiat.indexOf(a.code);
-      const bIndex = majorFiat.indexOf(b.code);
-      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-      if (aIndex !== -1) return -1;
-      if (bIndex !== -1) return 1;
-      return a.code.localeCompare(b.code);
-    });
+    return sortCurrencyListByUsage(
+      Object.entries(currencyMetaMap).map(([code, meta]) => ({
+        code,
+        country: meta.country,
+        name: meta.name
+      }))
+    );
   });
 
   // 新增：用于传递给计算器的初始值
@@ -78,96 +104,37 @@ function App() {
   // 处理刷新完成回调
   const handleRefreshComplete = useCallback(() => {
     setRefreshTrigger(prev => prev + 1);
-    console.log('🔄 触发应用数据刷新');
+    devLog('触发应用数据刷新');
   }, []);
 
   // 使用防抖来优化API调用 - 减少延迟时间提升用户体验
   const debouncedAmount = useDebounce(amount, 200); // 进一步减少到200ms
   const debouncedFromCurrency = useDebounce(fromCurrency, 100); // 减少到100ms
-  const debouncedToCurrency = useDebounce(toCurrency, 100); // 减少到100ms
-  const debouncedSelectedPeriod = useDebounce(selectedPeriod, 300); // 从500ms减少到300ms
+  const debouncedToCurrency = useDebounce(toCurrency, 100);
 
   // 全局加载币种列表（使用本地列表，不调用API以节省配额）
   useEffect(() => {
-    // 直接使用本地币种列表，不调用API，节省每日配额
-    // 基础排序：主要货币
-    const baseMajorFiat = [
-      'USD', 'CNY', 'EUR', 'CAD', 'GBP', 'HKD', 'JPY', 'AUD', 'SGD', 'KRW', 'INR', 'RUB', 'BRL', 'ZAR'
-    ];
-
-    // 获取用户使用频率
-    let usageStats: Record<string, number> = {};
-    try {
-      const storedStats = localStorage.getItem('currency_usage_stats');
-      if (storedStats) {
-        usageStats = JSON.parse(storedStats);
-      }
-    } catch (e) {
-      console.warn('读取货币使用统计失败', e);
-    }
-
-    // 根据频率调整顺序
-    // 策略：USD 和 CNY 始终置顶，其他根据频率排序，频率高的排在主要货币列表中靠前位置
-    const topCurrencies = Object.entries(usageStats)
-      .sort(([, a], [, b]) => b - a) // 按频率降序
-      .map(([code]) => code)
-      .filter(code => code !== 'USD' && code !== 'CNY'); // 排除已固定的
-
-    // 构建最终的主要货币列表
-    // 1. USD, CNY
-    // 2. 高频使用的前 3 个货币（如果存在）
-    // 3. 原有的主要货币（去重）
-    const majorFiat = [
-      'USD', 'CNY',
-      ...topCurrencies.slice(0, 3), 
-      ...baseMajorFiat
-    ];
-    
-    // 去重
-    const uniqueMajorFiat = Array.from(new Set(majorFiat));
-    
-    // 从本地映射表构建币种列表（只包含法币）
     const allFiatList = Object.entries(currencyMetaMap)
       .map(([code, meta]) => ({
         code,
         country: meta.country,
         name: meta.name
       }))
-      .filter(item => item.country && item.name); // 确保有完整信息
-    
-    // 经济大国法币优先排序
-    const sortedFiat = [
-      ...uniqueMajorFiat
-        .map(code => allFiatList.find(item => item.code === code))
-        .filter((item): item is { code: string; country: string; name: string } => Boolean(item)),
-      ...allFiatList.filter(item => !uniqueMajorFiat.includes(item.code))
-    ];
-    
-    setCurrencyList(sortedFiat);
-    console.log('本地币种列表加载成功（仅法币），共', sortedFiat.length, '种货币，未消耗API配额');
-    
-    // 可选：如果需要从API获取最新币种列表，可以在这里调用（但会消耗1次配额）
-    // async function fetchCurrenciesFromAPI() {
-    //   try {
-    //     const codes = await getSupportedCurrenciesFromAPI();
-    //     // 处理API返回的币种列表...
-    //   } catch (error) {
-    //     console.warn('API币种列表获取失败，继续使用本地列表:', error);
-    //   }
-    // }
-    // fetchCurrenciesFromAPI();
+      .filter(item => item.country && item.name);
+
+    setCurrencyList(sortCurrencyListByUsage(allFiatList));
 
     async function fetchInitialRate() {
       // 立即获取初始汇率，不等待防抖
       try {
         const initialRateObj = await getExchangeRate('USD', 'CNY');
         if (initialRateObj.rate > 0) {
-          setRate(initialRateObj.rate);
+          setRate(applyDisplayExchangeMarkup(initialRateObj.rate));
           setTimestamp(new Date().toLocaleString('zh-CN'));
-          console.log('初始汇率获取成功:', initialRateObj.rate);
+          devLog('初始汇率获取成功(展示已含上浮):', initialRateObj.rate);
         }
       } catch (error) {
-        console.warn('初始汇率获取失败，使用默认值:', error);
+        devWarn('初始汇率获取失败，使用默认值:', error);
       }
     }
 
@@ -180,23 +147,23 @@ function App() {
     let cancelled = false;
     async function fetchData() {
       if (!debouncedFromCurrency || !debouncedToCurrency || debouncedFromCurrency === debouncedToCurrency) {
-        console.warn('跳过汇率获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
+        devWarn('跳过汇率获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
         return;
       }
       
-      // 不再显示加载状态，直接获取汇率数据
-      console.log('开始获取汇率数据:', { debouncedAmount, debouncedFromCurrency, debouncedToCurrency });
+      devLog('开始获取汇率数据:', { debouncedAmount, debouncedFromCurrency, debouncedToCurrency });
       
       try {
-        const [r, rtObj] = await Promise.all([
-          convertCurrency(debouncedAmount, debouncedFromCurrency, debouncedToCurrency),
-          getExchangeRate(debouncedFromCurrency, debouncedToCurrency)
-        ]);
+        const rtObj = await getExchangeRate(debouncedFromCurrency, debouncedToCurrency);
+        const rawRate = Number(rtObj.rate);
+        const amt = Number(debouncedAmount);
+        const displayRate = applyDisplayExchangeMarkup(rawRate);
+        const displayResult = applyDisplayConversionMarkup(amt * rawRate);
         
         if (!cancelled) {
-          console.log('汇率数据获取完成:', { result: r, rate: rtObj });
-          setResult(Number(r));
-          setRate(Number(rtObj.rate));
+          devLog('汇率数据获取完成:', { displayResult, rate: rtObj, rawRate });
+          setResult(displayResult);
+          setRate(displayRate);
           setTimestamp(new Date().toLocaleString('zh-CN'));
           setIsImmediateCalculation(false); // 重置立即计算状态，优先显示API结果
           
@@ -212,18 +179,17 @@ function App() {
       } catch (error) {
         console.error('获取汇率数据失败:', error);
         if (!cancelled) {
-          // 检查是否是API限流错误
           const errorMessage = error instanceof Error ? error.message : String(error);
           let systemErrorMsg = '系统故障，无法获取最新汇率，请通知 13424243144 修复';
           
           if (errorMessage.includes('限流') || errorMessage.includes('429') || errorMessage.includes('Rate limit')) {
-            systemErrorMsg = 'API请求频率超限（每日200次已用完），请明天再试或升级API套餐。当前使用24小时内的缓存汇率。';
+            systemErrorMsg =
+              'API请求频率超限（主接口 ExchangeRate-API 免费版每日约1500次，或备用接口限流），请稍后再试；若页面仍显示金额，多为缓存汇率。';
           }
           
           setSystemError(systemErrorMsg);
           setIsUsingStaleRate(false);
-          setResult(0);
-          setRate(0);
+          // 保留上次有效结果，不清零，避免用户看到结果突然变0
         }
       }
     }
@@ -231,102 +197,19 @@ function App() {
     return () => { cancelled = true; };
   }, [debouncedAmount, debouncedFromCurrency, debouncedToCurrency, refreshTrigger]);
 
-  // 历史数据
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchHistory() {
-      // 确保货币代码有效且不相同
-      if (!debouncedFromCurrency || !debouncedToCurrency || debouncedFromCurrency === debouncedToCurrency) {
-        console.warn('跳过历史数据获取，货币参数无效:', { debouncedFromCurrency, debouncedToCurrency });
-        return;
-      }
-      
-      console.log('开始获取历史数据:', { debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod });
-      
-      try {
-        const data = await generateHistoricalData(debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod);
-        if (!cancelled) {
-          console.log('历史数据获取完成:', data.length, '条记录');
-          
-          // 如果有实时汇率且历史数据不包含今天的数据，添加当天数据点
-          if (rate > 0 && data.length > 0) {
-            const today = new Date().toISOString().split('T')[0];
-            const hasToday = data.some(item => item.date === today);
-            
-            if (!hasToday) {
-              const todayData = {
-                date: today,
-                rate: rate,
-                change: 0,
-                changePercent: 0,
-              };
-              data.push(todayData);
-              console.log('添加当天汇率数据:', todayData);
-            }
-          }
-          
-          // 对于1天数据，如果数据点太少，添加当前时间点
-          if (debouncedSelectedPeriod === '1D' && rate > 0) {
-            if (data.length < 2) {
-              // 如果数据太少，创建基础数据点
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              const today = new Date();
-              
-              const baseData = [
-                {
-                  date: yesterday.toISOString().split('T')[0],
-                  rate: rate * 0.999, // 模拟昨天稍微不同的汇率
-                  change: 0,
-                  changePercent: 0,
-                },
-                {
-                  date: today.toISOString().split('T')[0],
-                  rate: rate,
-                  change: 0,
-                  changePercent: 0,
-                }
-              ];
-              
-              console.log('为1天数据创建基础数据点:', baseData);
-              setHistoricalData(baseData);
-              return;
-            }
-          }
-          
-          setHistoricalData(data);
-        }
-      } catch (error) {
-        console.error('获取历史数据失败:', error);
-        if (!cancelled) {
-          setHistoricalData([]);
-        }
-      }
-    }
-    fetchHistory();
-    return () => { cancelled = true; };
-  }, [debouncedFromCurrency, debouncedToCurrency, debouncedSelectedPeriod, rate]);
-
   // 立即响应计算 - 使用当前汇率立即计算结果
   useEffect(() => {
     if (rate > 0 && amount !== '' && fromCurrency !== toCurrency) {
       const immediate = Number(amount) * rate;
       setImmediateResult(immediate);
       setIsImmediateCalculation(true);
-      console.log('立即计算结果:', { amount, rate, immediate });
+      devLog('立即计算结果:', { amount, rate, immediate });
     } else if (amount === '') {
       // 当金额为空时，立即显示0结果
       setImmediateResult(0);
       setIsImmediateCalculation(true);
     }
   }, [amount, rate, fromCurrency, toCurrency]);
-
-  // 预加载汇率 - 已禁用，避免API限流
-  // useEffect(() => {
-  //   if (fromCurrency && toCurrency && fromCurrency !== toCurrency) {
-  //     preloadExchangeRate(fromCurrency, toCurrency);
-  //   }
-  // }, [fromCurrency, toCurrency]);
 
   // 监听兑换结果变化，自动填入计算器（保留两位小数）
   useEffect(() => {
@@ -336,33 +219,30 @@ function App() {
     }
   }, [result]);
 
-  const handleSwapCurrencies = useCallback(() => {
-    setFromCurrency(toCurrency);
-    setToCurrency(fromCurrency);
-    // 记录使用频率
-    updateCurrencyUsage(toCurrency);
-    updateCurrencyUsage(fromCurrency);
-  }, [fromCurrency, toCurrency]);
-
-  // 更新货币使用频率的辅助函数
-  const updateCurrencyUsage = (code: string) => {
+  // 更新货币使用频率并重新排序币种列表
+  const updateCurrencyUsage = useCallback((code: string) => {
     try {
       const storedStats = localStorage.getItem('currency_usage_stats');
       const stats = storedStats ? JSON.parse(storedStats) : {};
       stats[code] = (stats[code] || 0) + 1;
       localStorage.setItem('currency_usage_stats', JSON.stringify(stats));
     } catch (e) {
-      console.warn('更新货币使用统计失败', e);
+      // ignore
     }
-  };
+    setCurrencyList(prev => sortCurrencyListByUsage(prev));
+  }, []);
+
+  const handleSwapCurrencies = useCallback(() => {
+    setFromCurrency(toCurrency);
+    setToCurrency(fromCurrency);
+    updateCurrencyUsage(toCurrency);
+    updateCurrencyUsage(fromCurrency);
+  }, [fromCurrency, toCurrency, updateCurrencyUsage]);
 
   const handleConvert = useCallback(() => {
-    // 转换按钮点击，不再显示加载状态
-    console.log('用户点击兑换按钮');
-    // 记录使用频率
     updateCurrencyUsage(fromCurrency);
     updateCurrencyUsage(toCurrency);
-  }, [fromCurrency, toCurrency]);
+  }, [fromCurrency, toCurrency, updateCurrencyUsage]);
 
   const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -450,9 +330,11 @@ function App() {
             {/* 交换按钮 */}
             <div className="flex justify-center">
               <button
+                type="button"
                 onClick={handleSwapCurrencies}
                 className="flex items-center justify-center w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors shadow-md"
                 title="交换货币"
+                aria-label="交换原始货币与目标货币"
               >
                 <ArrowLeftRight className="w-5 h-5" />
               </button>
@@ -472,8 +354,8 @@ function App() {
 
         {/* 兑换数额输入区域 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
-          <div className="flex items-end space-x-4">
-            <div className="flex-1">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-end gap-3 sm:gap-4">
+            <div className="flex-1 min-w-[12rem]">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 兑换数额：
               </label>
@@ -486,17 +368,18 @@ function App() {
               />
             </div>
             <button
+              type="button"
               onClick={handleConvert}
-              className="w-28 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium mt-2 flex items-center justify-center text-lg"
-              disabled={isLoading}
+              className="w-full sm:w-28 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium sm:mt-2 flex items-center justify-center text-lg shrink-0"
             >
-              {isLoading ? '转换中...' : '兑换'}
+              兑换
             </button>
             <button
+              type="button"
               onClick={handleRefresh}
               disabled={refreshState === 'refreshing'}
               className={`
-                w-28 py-4 rounded-lg font-medium mt-2 flex items-center justify-center text-lg transition-all duration-300
+                w-full sm:w-28 py-4 rounded-lg font-medium sm:mt-2 flex items-center justify-center text-lg transition-all duration-300 shrink-0
                 ${refreshState === 'refreshing'
                   ? 'bg-blue-100 text-blue-600 cursor-not-allowed' 
                   : refreshState === 'success'

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
-import { Currency } from '../types/currency';
 
 interface CurrencySelectorProps {
   selectedCurrency: string;
@@ -17,6 +16,10 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
+  const labelId = label ? `${uid}-label` : undefined;
+  const listId = `${uid}-list`;
 
   const selectedCurrencyData = currencyList.find(c => c.code === selectedCurrency);
   const filteredCurrencies = currencyList.length > 0 
@@ -27,22 +30,58 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
       )
     : [];
 
-  const handleCurrencySelect = (currency: { code: string; country: string; name: string }) => {
-    onCurrencyChange(currency.code);
+  const close = useCallback(() => {
     setIsOpen(false);
     setSearchTerm('');
+  }, []);
+
+  const handleCurrencySelect = (currency: { code: string; country: string; name: string }) => {
+    onCurrencyChange(currency.code);
+    close();
   };
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = rootRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        close();
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isOpen, close]);
+
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label id={labelId} className="block text-sm font-medium text-gray-700 mb-2">
           {label}
         </label>
       )}
       
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        onClick={() => setIsOpen((o) => !o)}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={isOpen ? listId : undefined}
+        aria-labelledby={labelId}
         className="w-full flex items-center justify-between p-4 border border-gray-300 rounded-lg bg-white hover:border-blue-500 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[60px]"
       >
         <div className="flex items-center space-x-3">
@@ -52,20 +91,26 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
             <span className="text-sm text-gray-500">{selectedCurrencyData?.name}</span>
           </div>
         </div>
-        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-2 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-hidden">
+        <div
+          id={listId}
+          className="absolute z-50 mt-2 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-hidden"
+          role="listbox"
+        >
           <div className="p-3 border-b border-gray-200">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" aria-hidden />
               <input
                 type="text"
                 placeholder="搜索货币..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="搜索货币"
+                autoFocus
               />
             </div>
           </div>
@@ -75,6 +120,9 @@ export const CurrencySelector: React.FC<CurrencySelectorProps> = ({
               filteredCurrencies.map((currency) => (
                 <button
                   key={currency.code}
+                  type="button"
+                  role="option"
+                  aria-selected={currency.code === selectedCurrency}
                   onClick={() => handleCurrencySelect(currency)}
                   className="w-full flex items-center p-3 hover:bg-gray-50 transition-colors text-left min-h-[40px]"
                 >
