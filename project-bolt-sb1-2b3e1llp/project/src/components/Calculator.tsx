@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { safeEvaluateMath } from '../utils/safeCalc';
 
@@ -10,6 +10,8 @@ const buttons = [
   ['( )', '←', 'AC', '='],
 ];
 
+const quickAddAmounts = [50, 25, 35, 75, 100, 150];
+
 // 自定义更长尾巴的回删箭头
 const CustomBackspaceIcon = () => (
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -18,12 +20,18 @@ const CustomBackspaceIcon = () => (
   </svg>
 );
 
-export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initialValue }) => {
+interface CalculatorProps {
+  initialValue?: string | number;
+}
+
+export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
   const [input, setInput] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddSuppressed, setQuickAddSuppressed] = useState(false);
   const displayRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = useCallback(async () => {
@@ -143,88 +151,163 @@ export const Calculator: React.FC<{ initialValue?: string | number }> = ({ initi
     }
   };
 
+  const baseValue = useMemo(() => {
+    if (showResult && result !== null) {
+      if (result === '错误') return null;
+      const numericResult = Number(result);
+      return Number.isFinite(numericResult) ? numericResult : null;
+    }
+
+    if (!input.trim()) return null;
+
+    try {
+      const evaluated = safeEvaluateMath(input);
+      return Number.isFinite(evaluated) ? evaluated : null;
+    } catch {
+      const numericInput = Number(input);
+      return Number.isFinite(numericInput) ? numericInput : null;
+    }
+  }, [input, result, showResult]);
+
+  const initialBaseValue = useMemo(() => {
+    if (initialValue === '' || initialValue === undefined || initialValue === null) return null;
+    const numericInitialValue = Number(initialValue.toString().replace(/,/g, ''));
+    return Number.isFinite(numericInitialValue) ? numericInitialValue : null;
+  }, [initialValue]);
+
+  const quickAddBaseValue = initialBaseValue ?? baseValue;
+
+  const handleQuickAdd = (amountToAdd: number) => {
+    if (quickAddBaseValue === null) return;
+
+    const roundedBase = Number(quickAddBaseValue.toFixed(2));
+    const expression = `${roundedBase.toFixed(2)}+${amountToAdd}`;
+    const quickResult = roundedBase + amountToAdd;
+
+    setInput(expression);
+    setResult(quickResult.toString());
+    setShowResult(true);
+    setShowQuickAdd(false);
+    setQuickAddSuppressed(true);
+    displayRef.current?.focus();
+  };
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 mb-8 max-w-2xl mx-auto flex flex-col items-center">
-      <div className="w-full flex flex-col items-end mb-4">
-        <div
-          className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px] outline-none relative group"
-          tabIndex={0}
-          ref={displayRef}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          onClick={() => setIsFocused(true)}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-            className="absolute left-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600 border border-gray-200 shadow-sm"
-            title="复制数值"
+    <div
+      className="relative mx-auto mb-8 w-full max-w-2xl"
+      onMouseEnter={() => {
+        if (!quickAddSuppressed) {
+          setShowQuickAdd(true);
+        }
+      }}
+      onMouseLeave={() => {
+        setShowQuickAdd(false);
+        setQuickAddSuppressed(false);
+      }}
+    >
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 w-full flex flex-col items-center">
+        <div className="w-full flex flex-col items-end mb-4">
+          <div
+            className="w-full text-right bg-gray-50 rounded-xl px-4 py-3 mb-2 border border-gray-200 min-h-[60px] outline-none relative group"
+            tabIndex={0}
+            ref={displayRef}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onClick={() => setIsFocused(true)}
           >
-            {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-          </button>
-          {copied && (
-            <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
-              已复制
-            </div>
-          )}
-          {showResult && result !== null ? (
-            <>
-              <div className="text-base text-gray-500 select-all">{input} =</div>
-              <div className="text-3xl font-bold text-gray-900 select-all">{result !== '错误' ? Number(result).toFixed(2) : result}</div>
-            </>
-          ) : (
-            <div className="text-3xl font-bold select-all min-h-[2.5rem] flex items-center justify-end w-full pr-1">
-              {input !== '' ? (
-                <span className="text-gray-900">{input}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+              className="absolute left-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-600 border border-gray-200 shadow-sm"
+              title="复制数值"
+            >
+              {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+            </button>
+            {copied && (
+              <div className="absolute left-12 top-1/2 -translate-y-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                已复制
+              </div>
+            )}
+            {showResult && result !== null ? (
+              <>
+                <div className="text-base text-gray-500 select-all">{input} =</div>
+                <div className="text-3xl font-bold text-gray-900 select-all">{result !== '错误' ? Number(result).toFixed(2) : result}</div>
+              </>
+            ) : (
+              <div className="text-3xl font-bold select-all min-h-[2.5rem] flex items-center justify-end w-full pr-1">
+                {input !== '' ? (
+                  <span className="text-gray-900">{input}</span>
+                ) : (
+                  <span className="text-gray-400 text-xl font-normal">输入数字或算式</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-4 w-full">
+          {buttons.map((row, rowIdx) =>
+            row.map((btn, colIdx) =>
+              btn ? (
+                <button
+                  key={rowIdx + '-' + colIdx}
+                  className={
+                    'py-4 rounded-full font-semibold transition-all ' +
+                    (btn === '='
+                      ? 'bg-blue-600 text-white hover:bg-blue-700 shadow text-xl'
+                      : btn === 'AC'
+                      ? 'bg-gray-200 text-red-500 hover:bg-red-100 font-bold text-xl'
+                      : btn === '-'
+                      ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-4xl'
+                      : (btn === '÷')
+                      ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-3xl'
+                      : (btn === '×' || btn === '+')
+                      ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-2xl'
+                      : btn === '%'
+                      ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-xl'
+                      : (['0','1','2','3','4','5','6','7','8','9','←'].includes(btn))
+                      ? 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-2xl font-extrabold'
+                      : (btn === '.')
+                      ? 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-3xl font-extrabold flex items-center justify-center'
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-xl')
+                  }
+                  style={{ minWidth: 0 }}
+                  onClick={() => handleClick(btn === '×' ? '*' : btn === '÷' ? '/' : btn)}
+                >
+                  {btn === '←' ? (
+                    <span className="flex items-center justify-center w-full h-full">
+                      <CustomBackspaceIcon />
+                    </span>
+                  ) : (
+                    btn
+                  )}
+                </button>
               ) : (
-                <span className="text-gray-400 text-xl font-normal">输入数字或算式</span>
-              )}
-            </div>
+                <div key={rowIdx + '-' + colIdx}></div>
+              )
+            )
           )}
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-4 w-full">
-        {buttons.map((row, rowIdx) =>
-          row.map((btn, colIdx) =>
-            btn ? (
-              <button
-                key={rowIdx + '-' + colIdx}
-                className={
-                  'py-4 rounded-full font-semibold transition-all ' +
-                  (btn === '='
-                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow text-xl'
-                    : btn === 'AC'
-                    ? 'bg-gray-200 text-red-500 hover:bg-red-100 font-bold text-xl'
-                    : btn === '-'
-                    ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-4xl'
-                    : (btn === '÷')
-                    ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-3xl'
-                    : (btn === '×' || btn === '+')
-                    ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-2xl'
-                    : btn === '%'
-                    ? 'bg-gray-100 text-blue-600 hover:bg-blue-50 text-xl'
-                    : (['0','1','2','3','4','5','6','7','8','9','←'].includes(btn))
-                    ? 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-2xl font-extrabold'
-                    : (btn === '.')
-                    ? 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-3xl font-extrabold flex items-center justify-center'
-                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200 text-xl')
-                }
-                style={{ minWidth: 0 }}
-                onClick={() => handleClick(btn === '×' ? '*' : btn === '÷' ? '/' : btn)}
-              >
-                {btn === '←' ? (
-                  <span className="flex items-center justify-center w-full h-full">
-                    <CustomBackspaceIcon />
-                  </span>
-                ) : (
-                  btn
-                )}
-              </button>
-            ) : (
-              <div key={rowIdx + '-' + colIdx}></div>
-            )
-          )
-        )}
+
+      <div className="absolute left-full top-4 ml-2 hidden h-20 w-44 lg:block" aria-hidden="true" />
+      <div
+        className={`absolute left-full top-5 z-10 ml-3 w-44 grid-cols-3 gap-x-1.5 gap-y-2.5 transition-opacity ${
+          showQuickAdd ? 'hidden opacity-100 lg:grid' : 'hidden opacity-0'
+        }`}
+      >
+        {quickAddAmounts.map((quickAmount) => (
+          <button
+            key={quickAmount}
+            type="button"
+            onClick={() => handleQuickAdd(quickAmount)}
+            disabled={quickAddBaseValue === null}
+            className="h-8 w-full rounded-md border border-gray-200 bg-white px-2 text-xs font-semibold text-blue-600 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:border-gray-200 disabled:hover:bg-white"
+            title={`加 ${quickAmount}`}
+            aria-label={`加 ${quickAmount}`}
+          >
+            +{quickAmount}
+          </button>
+        ))}
       </div>
     </div>
   );
-}; 
+};
