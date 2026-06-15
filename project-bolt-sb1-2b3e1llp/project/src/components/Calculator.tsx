@@ -192,18 +192,26 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
     displayRef.current?.focus();
   };
 
+  const showQuickAddButtons = () => {
+    if (!quickAddSuppressed) {
+      setShowQuickAdd(true);
+    }
+  };
+
+  const hideQuickAddButtons = () => {
+    setShowQuickAdd(false);
+    setQuickAddSuppressed(false);
+  };
+
+  const quickAddButtonClass =
+    'h-8 w-full rounded-md border border-gray-200 bg-white px-2 text-xs font-semibold text-blue-600 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:border-gray-200 disabled:hover:bg-white';
+
   return (
     <div
       className="relative mx-auto mb-8 w-full max-w-2xl"
-      onMouseEnter={() => {
-        if (!quickAddSuppressed) {
-          setShowQuickAdd(true);
-        }
-      }}
-      onMouseLeave={() => {
-        setShowQuickAdd(false);
-        setQuickAddSuppressed(false);
-      }}
+      onMouseEnter={showQuickAddButtons}
+      onMouseLeave={hideQuickAddButtons}
+      onTouchStart={showQuickAddButtons}
     >
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 w-full flex flex-col items-center">
         <div className="w-full flex flex-col items-end mb-4">
@@ -242,6 +250,25 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
               </div>
             )}
           </div>
+        </div>
+        <div
+          className={`mb-4 grid w-full grid-cols-3 gap-x-1.5 gap-y-2.5 lg:hidden ${
+            showQuickAdd ? '' : 'hidden'
+          }`}
+        >
+          {quickAddAmounts.map((quickAmount) => (
+            <button
+              key={quickAmount}
+              type="button"
+              onClick={() => handleQuickAdd(quickAmount)}
+              disabled={quickAddBaseValue === null}
+              className={quickAddButtonClass}
+              title={`加 ${quickAmount}`}
+              aria-label={`加 ${quickAmount}`}
+            >
+              +{quickAmount}
+            </button>
+          ))}
         </div>
         <div className="grid grid-cols-4 gap-4 w-full">
           {buttons.map((row, rowIdx) =>
@@ -300,7 +327,7 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
             type="button"
             onClick={() => handleQuickAdd(quickAmount)}
             disabled={quickAddBaseValue === null}
-            className="h-8 w-full rounded-md border border-gray-200 bg-white px-2 text-xs font-semibold text-blue-600 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:border-gray-200 disabled:hover:bg-white"
+            className={quickAddButtonClass}
             title={`加 ${quickAmount}`}
             aria-label={`加 ${quickAmount}`}
           >
