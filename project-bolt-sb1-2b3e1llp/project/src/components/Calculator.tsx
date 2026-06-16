@@ -10,7 +10,37 @@ const buttons = [
   ['( )', '←', 'AC', '='],
 ];
 
-const quickAddAmounts = [50, 25, 35, 75, 100, 150];
+const fixedQuickAddAmounts = [50, 100, 150];
+const defaultCustomQuickAddAmounts: Array<number | null> = [null, null, null];
+const CUSTOM_QUICK_ADD_STORAGE_KEY = 'calculator_custom_quick_add_amounts';
+
+const formatQuickAmount = (amount: number): string => (
+  Number.isInteger(amount) ? amount.toString() : amount.toFixed(2)
+);
+
+const loadCustomQuickAddAmounts = (): Array<number | null> => {
+  try {
+    const stored = localStorage.getItem(CUSTOM_QUICK_ADD_STORAGE_KEY);
+    if (!stored) return defaultCustomQuickAddAmounts;
+
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed) || parsed.length !== defaultCustomQuickAddAmounts.length) {
+      return defaultCustomQuickAddAmounts;
+    }
+
+    const amounts = parsed.map((value) => {
+      if (value === null || value === '') return null;
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : null;
+    });
+
+    return amounts.length === defaultCustomQuickAddAmounts.length
+      ? amounts
+      : defaultCustomQuickAddAmounts;
+  } catch {
+    return defaultCustomQuickAddAmounts;
+  }
+};
 
 // 自定义更长尾巴的回删箭头
 const CustomBackspaceIcon = () => (
@@ -32,7 +62,12 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
   const [copied, setCopied] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddSuppressed, setQuickAddSuppressed] = useState(false);
+  const [customQuickAddAmounts, setCustomQuickAddAmounts] = useState<Array<number | null>>(loadCustomQuickAddAmounts);
+  const [editingCustomIndex, setEditingCustomIndex] = useState<number | null>(null);
+  const [editingQuickAmount, setEditingQuickAmount] = useState('');
+  const [editingError, setEditingError] = useState('');
   const displayRef = useRef<HTMLDivElement>(null);
+  const quickAddClickTimerRef = useRef<number | null>(null);
 
   const handleCopy = useCallback(async () => {
     const valueToCopy = showResult && result !== null && result !== '错误'
@@ -112,6 +147,14 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
     };
   }, [handleKeyDown]);
 
+  useEffect(() => {
+    return () => {
+      if (quickAddClickTimerRef.current !== null) {
+        window.clearTimeout(quickAddClickTimerRef.current);
+      }
+    };
+  }, []);
+
   // 让显示区域可聚焦，点击时聚焦
   useEffect(() => {
     if (isFocused && displayRef.current) {
@@ -177,11 +220,16 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
 
   const quickAddBaseValue = initialBaseValue ?? baseValue;
 
+  const quickAddItems = useMemo(() => [
+    ...fixedQuickAddAmounts.map((amount) => ({ amount, key: `fixed-${amount}` })),
+    ...customQuickAddAmounts.map((amount, index) => ({ amount, key: `custom-${index}`, customIndex: index })),
+  ], [customQuickAddAmounts]);
+
   const handleQuickAdd = (amountToAdd: number) => {
     if (quickAddBaseValue === null) return;
 
     const roundedBase = Number(quickAddBaseValue.toFixed(2));
-    const expression = `${roundedBase.toFixed(2)}+${amountToAdd}`;
+    const expression = `${roundedBase.toFixed(2)}+${formatQuickAmount(amountToAdd)}`;
     const quickResult = roundedBase + amountToAdd;
 
     setInput(expression);
@@ -190,6 +238,61 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
     setShowQuickAdd(false);
     setQuickAddSuppressed(true);
     displayRef.current?.focus();
+  };
+
+  const handleQuickAddButtonClick = (amountToAdd: number | null, customIndex?: number) => {
+    if (amountToAdd === null) {
+      if (customIndex !== undefined) {
+        openCustomAmountEditor(customIndex);
+      }
+      return;
+    }
+
+    if (quickAddClickTimerRef.current !== null) return;
+
+    quickAddClickTimerRef.current = window.setTimeout(() => {
+      handleQuickAdd(amountToAdd);
+      quickAddClickTimerRef.current = null;
+    }, 180);
+  };
+
+  const openCustomAmountEditor = (customIndex: number) => {
+    if (quickAddClickTimerRef.current !== null) {
+      window.clearTimeout(quickAddClickTimerRef.current);
+      quickAddClickTimerRef.current = null;
+    }
+
+    const currentAmount = customQuickAddAmounts[customIndex];
+    setEditingCustomIndex(customIndex);
+    setEditingQuickAmount(currentAmount === null ? '' : formatQuickAmount(currentAmount));
+    setEditingError('');
+  };
+
+  const closeCustomAmountEditor = () => {
+    setEditingCustomIndex(null);
+    setEditingQuickAmount('');
+    setEditingError('');
+  };
+
+  const saveCustomAmount = (e?: React.FormEvent<HTMLFormElement>) => {
+    e?.preventDefault();
+    if (editingCustomIndex === null) return;
+
+    const trimmedAmount = editingQuickAmount.trim();
+    const numericAmount = trimmedAmount === '' ? null : Number(trimmedAmount);
+    if (numericAmount !== null && (!Number.isFinite(numericAmount) || numericAmount < 0)) {
+      setEditingError('请输入有效的非负数字');
+      return;
+    }
+
+    const roundedAmount = numericAmount === null ? null : Number(numericAmount.toFixed(2));
+    const nextAmounts = customQuickAddAmounts.map((amount, index) => (
+      index === editingCustomIndex ? roundedAmount : amount
+    ));
+
+    setCustomQuickAddAmounts(nextAmounts);
+    localStorage.setItem(CUSTOM_QUICK_ADD_STORAGE_KEY, JSON.stringify(nextAmounts));
+    closeCustomAmountEditor();
   };
 
   const showQuickAddButtons = () => {
@@ -256,17 +359,34 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
             showQuickAdd ? '' : 'hidden'
           }`}
         >
-          {quickAddAmounts.map((quickAmount) => (
+          {quickAddItems.map((quickItem) => (
             <button
-              key={quickAmount}
+              key={quickItem.key}
               type="button"
-              onClick={() => handleQuickAdd(quickAmount)}
-              disabled={quickAddBaseValue === null}
+              onClick={() => handleQuickAddButtonClick(quickItem.amount, quickItem.customIndex)}
+              onDoubleClick={() => {
+                if (quickItem.customIndex !== undefined) {
+                  openCustomAmountEditor(quickItem.customIndex);
+                }
+              }}
+              onContextMenu={(e) => {
+                if (quickItem.customIndex !== undefined) {
+                  e.preventDefault();
+                  openCustomAmountEditor(quickItem.customIndex);
+                }
+              }}
+              disabled={quickAddBaseValue === null && quickItem.amount !== null}
               className={quickAddButtonClass}
-              title={`加 ${quickAmount}`}
-              aria-label={`加 ${quickAmount}`}
+              title={
+                quickItem.amount === null
+                  ? '点击设置自定义金额'
+                  : quickItem.customIndex === undefined
+                  ? `加 ${quickItem.amount}`
+                  : '单击添加，双击修改'
+              }
+              aria-label={quickItem.amount === null ? '设置自定义金额' : `加 ${quickItem.amount}`}
             >
-              +{quickAmount}
+              {quickItem.amount === null ? '+' : `+${formatQuickAmount(quickItem.amount)}`}
             </button>
           ))}
         </div>
@@ -321,20 +441,79 @@ export const Calculator: React.FC<CalculatorProps> = ({ initialValue }) => {
           showQuickAdd ? 'hidden opacity-100 lg:grid' : 'hidden opacity-0'
         }`}
       >
-        {quickAddAmounts.map((quickAmount) => (
+        {quickAddItems.map((quickItem) => (
           <button
-            key={quickAmount}
+            key={quickItem.key}
             type="button"
-            onClick={() => handleQuickAdd(quickAmount)}
-            disabled={quickAddBaseValue === null}
+            onClick={() => handleQuickAddButtonClick(quickItem.amount, quickItem.customIndex)}
+            onDoubleClick={() => {
+              if (quickItem.customIndex !== undefined) {
+                openCustomAmountEditor(quickItem.customIndex);
+              }
+            }}
+            onContextMenu={(e) => {
+              if (quickItem.customIndex !== undefined) {
+                e.preventDefault();
+                openCustomAmountEditor(quickItem.customIndex);
+              }
+            }}
+            disabled={quickAddBaseValue === null && quickItem.amount !== null}
             className={quickAddButtonClass}
-            title={`加 ${quickAmount}`}
-            aria-label={`加 ${quickAmount}`}
+            title={
+              quickItem.amount === null
+                ? '点击设置自定义金额'
+                : quickItem.customIndex === undefined
+                ? `加 ${quickItem.amount}`
+                : '单击添加，双击修改'
+            }
+            aria-label={quickItem.amount === null ? '设置自定义金额' : `加 ${quickItem.amount}`}
           >
-            +{quickAmount}
+            {quickItem.amount === null ? '+' : `+${formatQuickAmount(quickItem.amount)}`}
           </button>
         ))}
       </div>
+      {editingCustomIndex !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/30 px-4">
+          <form
+            onSubmit={saveCustomAmount}
+            className="w-full max-w-xs rounded-lg border border-gray-200 bg-white p-5 shadow-xl"
+          >
+            <div className="text-base font-semibold text-gray-900">设置自定义金额</div>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={editingQuickAmount}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setEditingQuickAmount(e.target.value);
+                setEditingError('');
+              }}
+              className="mt-4 h-11 w-full rounded-md border border-gray-300 px-3 text-lg outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              placeholder="输入金额，留空则显示 +"
+              autoFocus
+            />
+            {editingError && (
+              <div className="mt-2 text-sm text-red-600">{editingError}</div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCustomAmountEditor}
+                className="h-9 rounded-md border border-gray-200 px-4 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="h-9 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                保存
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
