@@ -455,7 +455,25 @@ function App() {
       {/* 底部联系信息 */}
       <footer className="text-center py-6 text-sm text-gray-500">
         若系统故障，请通知 13424243144 / 13424240034（微信同号）<br />
-        <a href="https://huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-block mt-1">货代导航网</a>
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+          <a href="https://huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代导航网</a>
+          <span>|</span>
+          <a href="https://www.forwarderspn.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代服务商</a>
+          <span>|</span>
+          <a href="https://map.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代地图</a>
+          <span>|</span>
+          <a href="https://get.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代知识库</a>
+          <span>|</span>
+          <a href="https://www.56calls.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">56calls</a>
+          <span>|</span>
+          <a href="https://payduty.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">税金代付</a>
+          <span>|</span>
+          <a href="https://forwarder-group.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货代群</a>
+          <span>|</span>
+          <a href="https://currency-exchange.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">货币兑换</a>
+          <span>|</span>
+          <a href="https://mid.huodaiagent.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">MID生成器</a>
+        </div>
       </footer>
     </div>
   );
